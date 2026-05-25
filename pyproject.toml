@@ -1,0 +1,124 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aerosynthx"
+version = "0.0.1"
+description = "AI-assisted aerodynamic design and CFD orchestration platform."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Hasnain Raza" }]
+keywords = ["aerodynamics", "cfd", "openfoam", "airfoil", "engineering"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+
+# Runtime dependencies are intentionally empty in Phase 0.
+# They will be added as engineering modules are introduced.
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pre-commit>=3.7",
+]
+
+[project.urls]
+Homepage = "https://github.com/hasnainrazaa03/AeroSynthX"
+Issues = "https://github.com/hasnainrazaa03/AeroSynthX/issues"
+Changelog = "https://github.com/hasnainrazaa03/AeroSynthX/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aerosynthx"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/aerosynthx", "README.md", "LICENSE", "CHANGELOG.md"]
+
+# ----------------------------- Ruff -----------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+extend-exclude = ["build", "dist", ".venv"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pycodestyle / pyflakes
+    "I",             # isort
+    "B",             # bugbear
+    "UP",            # pyupgrade
+    "SIM",           # simplifications
+    "C4",            # comprehensions
+    "RET",           # return rules
+    "RUF",           # ruff-specific
+    "N",             # naming
+    "D",             # docstrings (relaxed below)
+]
+ignore = [
+    "D100", "D104", "D107",  # module/package/__init__ docstrings: not yet
+    "D203", "D213",          # docstring style choice
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D", "S101"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+# ----------------------------- Mypy -----------------------------
+[tool.mypy]
+python_version = "3.11"
+files = ["src", "tests"]
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true
+no_implicit_optional = true
+disallow_untyped_decorators = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+# ----------------------------- Pytest ---------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+markers = [
+    "slow: marks tests as slow (deselect with -m 'not slow')",
+    "solver: marks tests that require an OpenFOAM solver installation",
+]
+
+# ----------------------------- Coverage -------------------------
+[tool.coverage.run]
+branch = true
+source = ["aerosynthx"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+# Coverage gates are informational in Phase 0 and enforced from Phase 1
+# onward via CI configuration.

@@ -1,0 +1,85 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+.cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.pytest_cache/
+.hypothesis/
+coverage.xml
+*.cover
+*.py,cover
+
+# Type checkers
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs and local data
+*.log
+logs/
+local/
+tmp/
+data/local/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# AeroSynthX runtime artifacts (Phase 5+)
+runs/
+artifacts/
+*.sqlite
+*.sqlite3
+*.db
+
+# OpenFOAM artifacts (Phase 4+)
+# Common generated directories
+processor*/
+postProcessing/
+constant/polyMesh/
+0/uniform/
+*.foam
+log.*
