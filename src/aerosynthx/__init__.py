@@ -1,8 +1,7 @@
-"""AeroSynthX — AI-assisted aerodynamic design and CFD orchestration platform.
+"""AeroSynthX -- AI-assisted aerodynamic design and CFD orchestration platform.
 
-This package is intentionally empty in Phase 0. Engineering modules
-(`physics`, `geometry`, `intent`, `openfoam`, `workflow`) are introduced
-in subsequent phases. See ``docs/ROADMAP.md``.
+From Phase 1 onward the ``physics`` subpackage is available; see
+``aerosynthx.physics`` and ``docs/ARCHITECTURE.md``.
 """
 
-__version__ = "0.0.1"
+__version__ = "0.1.0"

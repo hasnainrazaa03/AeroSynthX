@@ -46,5 +46,5 @@ jobs:
       - name: Mypy
         run: mypy
 
-      - name: Pytest
-        run: pytest -q --cov=aerosynthx --cov-report=term-missing
+      - name: Pytest (with coverage gate)
+        run: pytest -q --cov=aerosynthx --cov-report=term-missing --cov-branch

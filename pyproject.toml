@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aerosynthx"
-version = "0.0.1"
+version = "0.1.0"
 description = "AI-assisted aerodynamic design and CFD orchestration platform."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -22,9 +22,12 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 
-# Runtime dependencies are intentionally empty in Phase 0.
-# They will be added as engineering modules are introduced.
-dependencies = []
+# Runtime dependencies grow per phase.
+# Phase 1 introduces numpy + pint (physics core).
+dependencies = [
+    "numpy>=1.26",
+    "pint>=0.23",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -72,7 +75,13 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["D", "S101"]
+"tests/**" = [
+    "D",        # docstrings not required in tests
+    "S101",     # assert allowed in tests
+    "N802",     # test names may use domain capitals (e.g. test_R_must_be_positive)
+    "N803",     # argument names may use domain capitals (e.g. T, P, L)
+    "N812",     # lowercase imports may be aliased to capitals
+]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -120,5 +129,8 @@ source = ["aerosynthx"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
-# Coverage gates are informational in Phase 0 and enforced from Phase 1
-# onward via CI configuration.
+# Phase 1 enforces a coverage floor on the physics core via CI.
+fail_under = 90
+
+[tool.coverage.paths]
+source = ["src/aerosynthx", "*/site-packages/aerosynthx"]
