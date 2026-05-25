@@ -13,6 +13,33 @@ policy.
 ### Added
 - (nothing yet)
 
+## [0.3.0] - 2026-05-25
+
+### Added
+- Phase 3: natural-language intent parsing layer.
+- `aerosynthx.intent.errors`: `IntentError` rooted under
+  `AeroSynthXError` with stable codes
+  (`intent.error`, `intent.schema.invalid`,
+  `intent.envelope.violation`, `intent.llm.parse_failed`, etc.).
+- `aerosynthx.intent.schemas`: Pydantic v2 models
+  (`AirfoilSpec`, `FlowCondition`, `Assumption`,
+  `ProvenanceMap`, `DesignIntent`, `ParseResult`) with
+  envelope-enforcing validators (NACA 4-digit only, Mach < 0.3,
+  |alpha| <= 20 deg, altitude 0-20000 m, exactly one of
+  velocity/mach).
+- `aerosynthx.intent.llm`: provider-agnostic `LLMClient` Protocol
+  + deterministic `StaticLLMClient` for tests. No provider is
+  hardcoded in the core.
+- `aerosynthx.intent.parser`: `IntentParser` with bounded
+  retry-on-validation-failure that feeds Pydantic errors back into
+  the LLM prompt.
+- `aerosynthx.intent.offline`: deterministic regex-based
+  `parse_offline` for tests and zero-network fallback, with
+  documented defaults captured as `Assumption` entries and full
+  provenance tagging.
+- Runtime dependency: `pydantic>=2.7`.
+- 56 new tests; 171 total at 100% line and branch coverage.
+
 ## [0.2.0] - 2026-05-25
 
 ### Added
@@ -78,7 +105,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/hasnainrazaa03/AeroSynthX/releases/tag/v0.0.1

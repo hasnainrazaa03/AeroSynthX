@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aerosynthx"
-version = "0.2.0"
+version = "0.3.0"
 description = "AI-assisted aerodynamic design and CFD orchestration platform."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,10 +25,12 @@ classifiers = [
 # Runtime dependencies grow per phase.
 # Phase 1 introduces numpy + pint (physics core).
 # Phase 2 introduces matplotlib (airfoil rendering).
+# Phase 3 introduces pydantic (intent schemas).
 dependencies = [
     "numpy>=1.26",
     "pint>=0.23",
     "matplotlib>=3.8",
+    "pydantic>=2.7",
 ]
 
 [project.optional-dependencies]
