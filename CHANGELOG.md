@@ -13,6 +13,28 @@ policy.
 ### Added
 - (nothing yet)
 
+## [0.2.0] - 2026-05-25
+
+### Added
+- Phase 2: deterministic geometry engine.
+- `aerosynthx.geometry.errors`: `GeometryError` rooted under
+  `AeroSynthXError` with stable `code` strings.
+- `aerosynthx.geometry.airfoil`: immutable `Airfoil` dataclass
+  (Selig ordering, normalized coordinates, frozen metadata).
+- `aerosynthx.geometry.naca4`: NACA 4-digit generator with cosine
+  spacing and optional closed trailing edge
+  (closed-TE coefficient `-0.1036`).
+- `aerosynthx.geometry.validators`: `validate_airfoil` checking
+  length, finiteness, x-range with leading-edge wrap tolerance,
+  upper/lower monotonicity, TE closure, and minimum thickness.
+- `aerosynthx.geometry.exporters`: Selig `.dat` and CSV string
+  exporters.
+- `aerosynthx.geometry.visualize`: PNG and SVG rendering via
+  Matplotlib's `Agg` backend (headless-safe, lazy import).
+- Runtime dependency: `matplotlib>=3.8`.
+- Mypy override: `ignore_missing_imports` for `matplotlib.*`.
+- 52 new tests; 115 total at 100% line and branch coverage.
+
 ## [0.1.0] - 2026-05-25
 
 ### Added
@@ -56,6 +78,7 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/hasnainrazaa03/AeroSynthX/releases/tag/v0.0.1
