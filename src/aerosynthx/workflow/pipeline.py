@@ -22,6 +22,7 @@ from aerosynthx.intent import (
     IntentError,
     parse_offline,
 )
+from aerosynthx.observability import METRICS, bind_correlation_id
 from aerosynthx.openfoam import (
     CaseManifest,
     FlowState,
@@ -34,6 +35,17 @@ from aerosynthx.workflow.errors import StageError
 from aerosynthx.workflow.stages import STAGE_ORDER, StageName
 
 _LOG = logging.getLogger("aerosynthx.workflow")
+
+_STAGE_HIST = METRICS.histogram(
+    "aerosynthx_pipeline_stage_duration_seconds",
+    "Wall time per pipeline stage, labelled by stage name and outcome.",
+    label_names=("stage", "status"),
+)
+_RUN_COUNTER = METRICS.counter(
+    "aerosynthx_pipeline_runs_total",
+    "Total pipeline runs, labelled by final status.",
+    label_names=("status",),
+)
 
 _StageStatus = Literal["ok", "skipped", "failed", "pending"]
 
@@ -138,6 +150,10 @@ class Pipeline:
                 _LOG.info("resume.hit run_id=%s", run_id)
                 return cached
 
+        with bind_correlation_id(run_id):
+            return self._run_uncached(run_id, intent_text)
+
+    def _run_uncached(self, run_id: str, intent_text: str) -> RunResult:
         run_dir = self._out_root / "runs" / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -236,6 +252,7 @@ class Pipeline:
             json.dumps(result.to_json(), indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+        _RUN_COUNTER.inc(status="completed")
         return result
 
     # ------------------------------------------------------------------
@@ -336,6 +353,7 @@ class Pipeline:
             )
         except Exception:  # pragma: no cover - defensive
             _LOG.exception("failed to persist failed run %s", run_id)
+        _RUN_COUNTER.inc(status=status)
         return RunResult(
             run_id=run_id,
             intent_text=intent_text,
@@ -369,7 +387,8 @@ class _StageRecorder:
         return self._record
 
     def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
-        elapsed_ms = int((time.perf_counter() - self._start) * 1000)
+        elapsed = time.perf_counter() - self._start
+        elapsed_ms = int(elapsed * 1000)
         if exc is not None:
             # Unexpected exception -- record as failure and swallow so
             # the pipeline can finalise cleanly.
@@ -382,11 +401,14 @@ class _StageRecorder:
             output_digest=self._record["digest"],
             error=self._record["error"],
         )
+        _STAGE_HIST.observe(elapsed, stage=self._stage.value, status=status)
         _LOG.info(
-            "stage.done name=%s status=%s ms=%d",
-            self._stage.value,
-            status,
-            elapsed_ms,
+            "stage.done",
+            extra={
+                "stage": self._stage.value,
+                "stage_status": status,
+                "duration_ms": elapsed_ms,
+            },
         )
         return True
 

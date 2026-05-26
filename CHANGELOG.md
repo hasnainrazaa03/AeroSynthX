@@ -13,6 +13,34 @@ policy.
 ### Added
 - (nothing yet)
 
+## [1.0.0] - 2026-05-25
+
+### Added
+- Phase 7: HTTP hardening, operability, and release automation.
+- `aerosynthx.observability` (zero external dependencies):
+  - Structured JSON logging with a `correlation_id` `ContextVar` and an
+    idempotent `configure_logging()` initialiser.
+  - `bind_correlation_id(...)` context manager.
+  - Minimal Prometheus-compatible `Counter` / `Histogram` types and a
+    module-level `METRICS` registry plus `render_prometheus()`.
+- API: `ObservabilityMiddleware` honours / mints `X-Correlation-Id` on
+  every request, exposes `aerosynthx_http_requests_total` and
+  `aerosynthx_http_request_duration_seconds`, and serves them at
+  `GET /metrics` in Prometheus text format.
+- Pipeline: each run is wrapped in `bind_correlation_id(run_id)`, stage
+  durations land in `aerosynthx_pipeline_stage_duration_seconds`, and
+  final outcomes increment `aerosynthx_pipeline_runs_total`.
+- `Dockerfile` (multi-stage slim image, non-root user, healthcheck) and
+  `.dockerignore`.
+- `Makefile` with `install`, `lint`, `format`, `type`, `test`, `cov`,
+  `serve`, `docker`, and `clean` targets.
+- `.github/workflows/release.yml` builds wheel + sdist on `v*.*.*` tags
+  and uploads them to the corresponding GitHub Release.
+- `.github/workflows/security.yml` runs `pip-audit` and `bandit -r src`
+  on every push, PR, and weekly schedule (advisory, non-blocking).
+- `tests/perf/test_budget.py` enforces a 2.0 s wall-time budget on the
+  offline parse-to-case path.
+
 ## [0.6.0] - 2026-05-25
 
 ### Added
@@ -168,7 +196,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.6.0...v1.0.0
 [0.6.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.3.0...v0.4.0

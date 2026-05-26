@@ -2,21 +2,56 @@
 
 from __future__ import annotations
 
+import time
+import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, status
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from aerosynthx import __version__
 from aerosynthx.api.schemas import RunRequest, RunSummary, VersionInfo
+from aerosynthx.observability import METRICS, bind_correlation_id, render_prometheus
 from aerosynthx.workflow.db import RunRow, open_session
 from aerosynthx.workflow.errors import StageError
 from aerosynthx.workflow.pipeline import Pipeline, load_run
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+_HTTP_REQUESTS = METRICS.counter(
+    "aerosynthx_http_requests_total",
+    "Total HTTP requests, labelled by method, route, and status code.",
+    label_names=("method", "route", "status"),
+)
+_HTTP_LATENCY = METRICS.histogram(
+    "aerosynthx_http_request_duration_seconds",
+    "HTTP request latency, labelled by method and route.",
+    label_names=("method", "route"),
+)
+
+
+class ObservabilityMiddleware(BaseHTTPMiddleware):
+    """Inject correlation IDs and record per-request metrics."""
+
+    async def dispatch(self, request: Request, call_next: Any) -> Response:
+        """Wrap one request: bind a correlation id and record metrics."""
+        cid = request.headers.get("X-Correlation-Id") or uuid.uuid4().hex
+        route = request.scope.get("route")
+        route_path = getattr(route, "path", request.url.path)
+        start = time.perf_counter()
+        with bind_correlation_id(cid):
+            response: Response = await call_next(request)
+        elapsed = time.perf_counter() - start
+        response.headers["X-Correlation-Id"] = cid
+        _HTTP_REQUESTS.inc(
+            method=request.method, route=route_path, status=str(response.status_code)
+        )
+        _HTTP_LATENCY.observe(elapsed, method=request.method, route=route_path)
+        return response
 
 
 def _safe_resolve(case_dir: Path, relative: str) -> Path:
@@ -51,12 +86,20 @@ def create_app(*, out_root: Path) -> FastAPI:
         version=__version__,
         description="HTTP API for the AeroSynthX workflow orchestrator.",
     )
+    app.add_middleware(ObservabilityMiddleware)
 
     # -------- meta -----------------------------------------------------
 
     @app.get("/healthz", tags=["meta"])
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/metrics", response_class=PlainTextResponse, tags=["meta"])
+    def metrics() -> PlainTextResponse:
+        return PlainTextResponse(
+            render_prometheus(),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
+        )
 
     @app.get("/api/v1/version", response_model=VersionInfo, tags=["meta"])
     def version() -> VersionInfo:

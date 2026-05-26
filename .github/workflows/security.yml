@@ -1,0 +1,36 @@
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1"  # Mondays 06:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Dependency + static scans (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install scanners
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]" pip-audit bandit
+
+      - name: pip-audit
+        run: pip-audit --strict || true
+
+      - name: bandit
+        run: bandit -q -r src -ll || true

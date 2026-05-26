@@ -1,0 +1,35 @@
+# Git
+.git
+.gitignore
+.github
+
+# Python build artifacts
+__pycache__
+*.pyc
+*.pyo
+.venv
+venv
+build
+dist
+*.egg-info
+
+# Test / coverage artifacts
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+coverage.xml
+
+# Editor / OS
+.vscode
+.idea
+.DS_Store
+
+# Runtime output
+work
+out
+runs
+
+# Docs (kept out of image; available via repo)
+docs

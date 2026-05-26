@@ -168,3 +168,23 @@ def test_safe_resolve_direct_traversal_guard(tmp_path: Path) -> None:
     with pytest.raises(HTTPException) as exc:
         _safe_resolve(case, "../etc/passwd")
     assert exc.value.status_code == 400
+
+
+def test_metrics_endpoint_exposes_prometheus_text(client: TestClient) -> None:
+    # Drive at least one request through the API so counters populate.
+    assert client.get("/healthz").status_code == 200
+    r = client.get("/metrics")
+    assert r.status_code == 200
+    assert "text/plain" in r.headers["content-type"]
+    assert "aerosynthx_http_requests_total" in r.text
+    assert "aerosynthx_http_request_duration_seconds" in r.text
+
+
+def test_response_includes_correlation_id_header(client: TestClient) -> None:
+    r = client.get("/healthz")
+    assert r.headers.get("X-Correlation-Id")
+
+
+def test_correlation_id_round_trips(client: TestClient) -> None:
+    r = client.get("/healthz", headers={"X-Correlation-Id": "my-trace-1"})
+    assert r.headers["X-Correlation-Id"] == "my-trace-1"
