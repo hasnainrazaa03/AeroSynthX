@@ -13,6 +13,31 @@ policy.
 ### Added
 - (nothing yet)
 
+## [0.4.0] - 2026-05-25
+
+### Added
+- Phase 4: OpenFOAM case generation layer (`aerosynthx.openfoam`).
+- `derive_flow_state(intent)`: deterministic mapping from
+  `DesignIntent` + US Std Atm 1976 to concrete SI flow quantities
+  (velocity vector, Mach, density, kinematic viscosity, Reynolds,
+  k-omega turbulence initial conditions).
+- `build_case(intent, output_dir, *, overwrite=False)`: renders the
+  bundled `incompressible_simple_komegaSST` Jinja2 template set into
+  a complete case directory with `0/`, `constant/`, `system/`,
+  `Allrun`, `Allclean`, and a reproducibility manifest with SHA-256
+  digests of every emitted file.
+- Airfoil geometry exported to `constant/triSurface/airfoil.dat` for
+  downstream meshers.
+- `validate_case_structure(case_dir)`: static structural checks
+  (required files, balanced braces, required keys per dictionary)
+  that never execute OpenFOAM.
+- Envelope guard re-validates intent at the OpenFOAM boundary
+  (defence in depth).
+- Typed errors: `OpenFoamError`, `EnvelopeViolationError`,
+  `CaseExistsError`, `TemplateRenderError`.
+- Runtime dependency: `jinja2>=3.1`.
+- 30 new tests; 201 total at 100% line + branch coverage.
+
 ## [0.3.0] - 2026-05-25
 
 ### Added
@@ -105,7 +130,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.0.1...v0.1.0

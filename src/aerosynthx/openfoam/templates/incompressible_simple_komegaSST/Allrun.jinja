@@ -1,0 +1,9 @@
+#!/bin/sh
+# AeroSynthX-generated Allrun script.
+# Mesh refinement around the airfoil is intentionally out of scope for
+# v0.4.0; this script only generates the rectangular far-field domain.
+cd "$(dirname "$0")" || exit 1
+. "${WM_PROJECT_DIR:?WM_PROJECT_DIR not set}/bin/tools/RunFunctions"
+
+runApplication blockMesh
+# runApplication simpleFoam      # enable after wrapping with a mesher
