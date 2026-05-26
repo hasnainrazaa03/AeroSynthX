@@ -128,9 +128,7 @@ def test_compute_stage_envelope_violation(tmp_path: Path) -> None:
     assert compute.status == "failed"
 
 
-def test_case_stage_failure_is_captured(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_case_stage_failure_is_captured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from aerosynthx.openfoam.errors import OpenFoamError
     from aerosynthx.workflow import pipeline as pipe_mod
 
@@ -147,9 +145,7 @@ def test_case_stage_failure_is_captured(
     assert persist.status == "pending"
 
 
-def test_resume_skips_only_completed_runs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_resume_skips_only_completed_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from aerosynthx.openfoam.errors import OpenFoamError
     from aerosynthx.workflow import pipeline as pipe_mod
 
