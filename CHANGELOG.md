@@ -13,6 +13,25 @@ policy.
 ### Added
 - (nothing yet)
 
+## [0.5.0] - 2026-05-25
+
+### Added
+- Phase 5: end-to-end workflow orchestrator (`aerosynthx.workflow`).
+- `Pipeline` class: staged execution (parse → compute → geometry
+  → case → persist) with per-stage timing, SHA-256 output digests,
+  and resumable reruns keyed by a SHA-256 hash of the normalised
+  intent text.
+- SQLite-backed run store via SQLAlchemy 2.0 (`RunRow`, `StageRow`,
+  `init_db`, `open_session`, `load_run`) for durable run history.
+- `aerosynthx` console entry point (stdlib `argparse`) exposing
+  `aerosynthx run --intent ... --out ...` and
+  `aerosynthx show <run_id> --out ...` with JSON output.
+- Per-run output directory `<out>/runs/<run_id>/` containing the
+  generated OpenFOAM `case/` and a `run.json` snapshot of the
+  `RunResult` for offline inspection.
+- Workflow error hierarchy: `WorkflowError`, `StageError` (with
+  `stage` attribute), `RunNotFoundError`.
+
 ## [0.4.0] - 2026-05-25
 
 ### Added
@@ -130,7 +149,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.1.0...v0.2.0
