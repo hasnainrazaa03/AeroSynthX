@@ -13,6 +13,25 @@ policy.
 ### Added
 - (nothing yet)
 
+## [0.6.0] - 2026-05-25
+
+### Added
+- Phase 6: HTTP API + minimal web UI (`aerosynthx.api`).
+- FastAPI app factory `create_app(*, out_root)` exposing:
+  - `GET /healthz`, `GET /api/v1/version`
+  - `POST /api/v1/runs` (executes the Phase 5 pipeline)
+  - `GET /api/v1/runs` (history, newest first)
+  - `GET /api/v1/runs/{run_id}` (full run payload)
+  - `GET /api/v1/runs/{run_id}/files` and
+    `GET /api/v1/runs/{run_id}/files/{path}` (case file browser /
+    download) with a path-traversal guard.
+  - `GET /` serving a bundled vanilla-JS browser UI for intent input,
+    run history, and case file browsing.
+- `aerosynthx serve --out <dir> [--host] [--port]` CLI subcommand
+  that boots Uvicorn against the FastAPI app.
+- Runtime deps: `fastapi>=0.110`, `uvicorn>=0.27`.
+- Dev deps: `httpx>=0.27` (for `fastapi.testclient.TestClient`).
+
 ## [0.5.0] - 2026-05-25
 
 ### Added
@@ -149,7 +168,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.2.0...v0.3.0

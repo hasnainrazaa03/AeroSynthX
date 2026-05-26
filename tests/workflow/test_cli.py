@@ -80,3 +80,29 @@ def test_verbose_flag_sets_debug_logging(
 def test_missing_subcommand_errors(tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
         main([])
+
+
+def test_serve_subcommand_invokes_uvicorn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: dict[str, object] = {}
+
+    def fake_run(app: object, **kwargs: object) -> None:
+        calls["app"] = app
+        calls["kwargs"] = kwargs
+
+    import uvicorn
+
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+    rc = main(
+        [
+            "serve",
+            "--out",
+            str(tmp_path),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "9999",
+        ]
+    )
+    assert rc == 0
+    assert calls["app"] is not None
+    assert calls["kwargs"] == {"host": "127.0.0.1", "port": 9999, "log_level": "info"}

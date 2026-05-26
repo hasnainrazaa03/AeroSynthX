@@ -50,6 +50,11 @@ def _build_parser() -> argparse.ArgumentParser:
     show_p.add_argument("run_id", help="Run id returned by `run`.")
     show_p.add_argument("--out", required=True, type=Path, help="Output directory used by `run`.")
 
+    serve_p = sub.add_parser("serve", help="Start the FastAPI server.")
+    serve_p.add_argument("--out", required=True, type=Path, help="Output directory used by runs.")
+    serve_p.add_argument("--host", default="127.0.0.1", help="Bind host.")
+    serve_p.add_argument("--port", default=8000, type=int, help="Bind port.")
+
     return parser
 
 
@@ -77,6 +82,17 @@ def _cmd_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_serve(args: argparse.Namespace) -> int:
+    # Imports deferred so `aerosynthx run`/`show` do not pay the FastAPI cost.
+    import uvicorn
+
+    from aerosynthx.api import create_app
+
+    app = create_app(out_root=args.out)
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI; return a POSIX exit code."""
     parser = _build_parser()
@@ -84,8 +100,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     _configure_logging(args.verbose)
     if args.command == "run":
         return _cmd_run(args)
-    if args.command == "show":  # pragma: no branch - argparse enforces choice
+    if args.command == "show":
         return _cmd_show(args)
+    if args.command == "serve":  # pragma: no branch - argparse enforces choice
+        return _cmd_serve(args)
     parser.error(f"unknown command: {args.command}")  # pragma: no cover
     return 2  # pragma: no cover
 

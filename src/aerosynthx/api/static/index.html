@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AeroSynthX</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>AeroSynthX</h1>
+      <span id="version" class="badge">…</span>
+    </header>
+
+    <main>
+      <section class="panel">
+        <h2>Design intent</h2>
+        <form id="intent-form">
+          <textarea
+            id="intent-text"
+            rows="3"
+            placeholder="e.g. NACA 2412 at 50 m/s, alpha 3 deg, chord 1.0 m."
+          ></textarea>
+          <div class="row">
+            <label>
+              <input type="checkbox" id="resume" checked />
+              resume completed runs
+            </label>
+            <button type="submit">Run pipeline</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel" id="result-panel" hidden>
+        <h2>Result</h2>
+        <div id="result-summary"></div>
+        <h3>Stages</h3>
+        <table id="stages">
+          <thead>
+            <tr><th>Name</th><th>Status</th><th>ms</th><th>Digest</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <h3>Case files</h3>
+        <ul id="files"></ul>
+      </section>
+
+      <section class="panel">
+        <h2>Run history</h2>
+        <button id="refresh-runs" type="button">Refresh</button>
+        <table id="runs">
+          <thead>
+            <tr><th>Run ID</th><th>Status</th><th>Created</th><th>Intent</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </main>
+
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
