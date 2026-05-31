@@ -242,6 +242,11 @@ def create_app(
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
+    @app.get("/api/v1/store/stats", tags=["store"], dependencies=[auth_read])
+    def store_stats() -> dict[str, int]:
+        stats = pipeline.artifact_store.stats()
+        return {"blobs": stats.blobs, "bytes": stats.bytes}
+
     @app.get("/api/v1/runs/{run_id}/files", tags=["runs"], dependencies=[auth_read])
     def list_run_files(run_id: str) -> dict[str, list[str]]:
         case_dir = _require_case_dir(pipeline, run_id)

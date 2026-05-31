@@ -56,6 +56,36 @@ def test_run_is_resumable(tmp_path: Path) -> None:
     assert sentinel.exists(), "resume must not re-execute the case stage"
 
 
+def test_run_archives_case_into_store(tmp_path: Path) -> None:
+    pipe = Pipeline(out_root=tmp_path)
+    result = pipe.run(_GOOD_INTENT)
+    assert result.case_dir is not None
+
+    # Every manifest file is now present in the content-addressed store.
+    manifest_path = result.case_dir / "aerosynthx_manifest.json"
+    import json
+
+    manifest = json.loads(manifest_path.read_text())
+    store = pipe.artifact_store
+    for digest in manifest["files"].values():
+        assert store.has(digest)
+
+    blobs_before = store.stats().blobs
+    # A fresh (non-resumed) run of the same intent de-duplicates: no new blobs.
+    pipe.run(_GOOD_INTENT, resume=False)
+    assert store.stats().blobs == blobs_before
+
+
+def test_injected_artifact_store_is_used(tmp_path: Path) -> None:
+    from aerosynthx.workflow.artifacts import ContentAddressedStore
+
+    store = ContentAddressedStore(tmp_path / "custom-blobs")
+    pipe = Pipeline(out_root=tmp_path, artifact_store=store)
+    assert pipe.artifact_store is store
+    pipe.run(_GOOD_INTENT)
+    assert store.stats().blobs > 0
+
+
 def test_run_no_resume_re_executes(tmp_path: Path) -> None:
     pipe = Pipeline(out_root=tmp_path)
     first = pipe.run(_GOOD_INTENT)

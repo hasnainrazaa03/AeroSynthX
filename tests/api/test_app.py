@@ -139,6 +139,17 @@ def test_list_files(client: TestClient) -> None:
     assert any(f.endswith("Allrun") for f in files)
 
 
+def test_store_stats(client: TestClient) -> None:
+    empty = client.get("/api/v1/store/stats")
+    assert empty.status_code == 200
+    assert empty.json() == {"blobs": 0, "bytes": 0}
+
+    client.post("/api/v1/runs", json={"intent_text": _GOOD})
+    after = client.get("/api/v1/store/stats").json()
+    assert after["blobs"] > 0
+    assert after["bytes"] > 0
+
+
 def test_list_files_404_unknown_run(client: TestClient) -> None:
     r = client.get("/api/v1/runs/deadbeefdeadbeef/files")
     assert r.status_code == 404
@@ -323,6 +334,9 @@ def test_scoped_keys_enforce_rbac(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         assert (
             c.get(f"/api/v1/runs/{rid}/events", headers={"X-API-Key": "runner"}).status_code == 403
         )
+        # Store stats also requires the read scope.
+        assert c.get("/api/v1/store/stats", headers={"X-API-Key": "reader"}).status_code == 200
+        assert c.get("/api/v1/store/stats", headers={"X-API-Key": "runner"}).status_code == 403
 
 
 def test_rate_limit_returns_429(tmp_path: Path) -> None:

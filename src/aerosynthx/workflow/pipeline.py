@@ -41,6 +41,7 @@ from aerosynthx.openfoam import (
     openfoam_available,
     run_case,
 )
+from aerosynthx.workflow.artifacts import ContentAddressedStore
 from aerosynthx.workflow.cancellation import CancellationToken, RunControl
 from aerosynthx.workflow.db import RunRow, StageRow, open_session
 from aerosynthx.workflow.errors import StageError
@@ -195,6 +196,7 @@ class Pipeline:
         command_runner: CommandRunner | None = None,
         clock: Callable[[], float] | None = None,
         lock_registry: RunLockRegistry | None = None,
+        artifact_store: ContentAddressedStore | None = None,
     ) -> None:
         self._out_root = out_root
         self._db_path = db_path if db_path is not None else out_root / _DEFAULT_DB_NAME
@@ -206,11 +208,21 @@ class Pipeline:
         self._locks: RunLockRegistry = (
             lock_registry if lock_registry is not None else DEFAULT_RUN_LOCKS
         )
+        self._artifact_store: ContentAddressedStore = (
+            artifact_store
+            if artifact_store is not None
+            else ContentAddressedStore(out_root / "blobs")
+        )
 
     @property
     def db_path(self) -> Path:
         """Path to the SQLite run store."""
         return self._db_path
+
+    @property
+    def artifact_store(self) -> ContentAddressedStore:
+        """The content-addressed store de-duplicating run case files."""
+        return self._artifact_store
 
     def delete_run(self, run_id: str) -> bool:
         """Delete a run's store record and on-disk artifacts.
@@ -411,6 +423,7 @@ class Pipeline:
                 assert intent is not None
                 manifest = build_case(intent, case_dir, overwrite=True)
                 record["digest"] = _sha256_of_json(manifest.files)
+                self._artifact_store.archive_case(case_dir, manifest.files)
             except OpenFoamError as exc:
                 record["error"] = str(exc)
         stages.append(record["result"])

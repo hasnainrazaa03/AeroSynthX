@@ -13,6 +13,27 @@ policy.
 ### Added
 - (nothing yet)
 
+## [1.11.0] - 2026-05-31
+
+### Added
+- Phase 18: content-addressed artifact store that de-duplicates identical
+  case files across runs, with zero new runtime dependencies.
+  - New `aerosynthx.workflow.artifacts` module: `ContentAddressedStore`, a
+    filesystem blob store keyed by SHA-256 digest (sharded
+    `root/<aa>/<digest>`, atomic temp-file writes). `archive_case` stores
+    each case file once and counts later duplicates as de-duplicated;
+    `has`, `path_for`, `read_blob`, and `stats` round out the API. New
+    `ArchiveResult` and `StoreStats` dataclasses describe the outcomes.
+  - `Pipeline` archives every successful case build into a store rooted at
+    `<out_root>/blobs` (injectable via `artifact_store=`, exposed as the
+    `artifact_store` property). Archiving is purely additive: the run
+    directory layout, manifest digest, database, and file-serving API are
+    unchanged, so identical files across runs are stored only once.
+  - New `GET /api/v1/store/stats` endpoint (requires the `read` scope)
+    reports the store's blob count and total byte size.
+  - New `aerosynthx_cas_blobs_total{outcome}` counter makes de-duplication
+    observable in Prometheus.
+
 ## [1.10.0] - 2026-05-31
 
 ### Added
@@ -395,7 +416,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.11.0...HEAD
+[1.11.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.7.0...v1.8.0

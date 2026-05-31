@@ -12,6 +12,11 @@ Public API:
 
 from __future__ import annotations
 
+from aerosynthx.workflow.artifacts import (
+    ArchiveResult,
+    ContentAddressedStore,
+    StoreStats,
+)
 from aerosynthx.workflow.cancellation import CancellationToken, Deadline, RunControl
 from aerosynthx.workflow.cli import main
 from aerosynthx.workflow.db import RunRow, StageRow, init_db, open_session
@@ -35,7 +40,9 @@ from aerosynthx.workflow.stages import STAGE_ORDER, StageName
 __all__ = [
     "DEFAULT_RUN_LOCKS",
     "STAGE_ORDER",
+    "ArchiveResult",
     "CancellationToken",
+    "ContentAddressedStore",
     "Deadline",
     "Pipeline",
     "ProgressEvent",
@@ -51,6 +58,7 @@ __all__ = [
     "StageName",
     "StageResult",
     "StageRow",
+    "StoreStats",
     "WorkflowError",
     "init_db",
     "load_run",

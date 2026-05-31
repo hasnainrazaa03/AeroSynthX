@@ -48,7 +48,8 @@ release, (d) an updated `CHANGELOG.md`.
 | 15 | Concurrency: per-run locking for safe parallel runs | Shipped (`v1.8.0`) |
 | 16 | SSE streaming of run stage timeline (`/runs/{id}/events`) | Shipped (`v1.9.0`) |
 | 17 | Live pipeline progress events (`on_event`, `run --progress`) | Shipped (`v1.10.0`) |
-| 17+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
+| 18 | Content-addressed artifact store (de-dup case files) | Shipped (`v1.11.0`) |
+| 18+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
 
 Each phase has a dedicated checklist file under `docs/phases/`.
 
@@ -330,6 +331,10 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 - [x] **P1** Run cancellation + timeout enforcement (Phase 13, `v1.6.0`).
 - [x] **P2** Run deletion + artifact retention / cleanup policy (Phase 14,
   `v1.7.0`; basic per-run deletion — automatic retention policies remain).
+- [x] **P2** Content-addressed artifact store de-duplicating case files
+  across runs (Phase 18, `v1.11.0`; shared SHA-256 blob store under
+  `<out_root>/blobs` with a `GET /store/stats` endpoint — relinking run
+  directories to blobs remains future work).
 - [ ] **P2** Postgres backend option (SQLite stays the default).
 - [ ] **P2** Alembic migrations for schema evolution.
 - [ ] **P2** Completion webhooks / callbacks.
@@ -367,11 +372,11 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 
 ### Suggested next phase
 
-**Phase 17 — live pipeline progress events** shipped in `v1.10.0`, emitting
-structured `stage_started` / `stage_finished` / `run_finished` events
-*during* `Pipeline.run` via an `on_event` sink (surfaced by
-`aerosynthx run --progress`). The strongest remaining candidate is a
-**content-addressed artifact store** under *Workflow & data* (filesystem
-store keyed by digest, de-duplicating identical case files across runs),
-followed by relaying these live progress events through the SSE endpoint in
-real time.
+**Phase 18 — content-addressed artifact store** shipped in `v1.11.0`,
+archiving every case file once into a shared SHA-256 blob store under
+`<out_root>/blobs` and exposing `GET /api/v1/store/stats`. The strongest
+remaining candidates are **automatic retention / cleanup policies** (prune
+old runs and unreferenced blobs by age or count) and **relinking run
+directories to blobs** (serve files straight from the store via
+hard-links/symlinks so on-disk run trees shrink), both under *Workflow &
+data*.
