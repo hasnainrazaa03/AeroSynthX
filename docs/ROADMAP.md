@@ -45,7 +45,8 @@ release, (d) an updated `CHANGELOG.md`.
 | 12 | LLM retry with exponential backoff | Shipped (`v1.5.0`) |
 | 13 | Run cancellation + timeout enforcement | Shipped (`v1.6.0`) |
 | 14 | Run deletion + retention (`DELETE /runs/{id}`) | Shipped (`v1.7.0`) |
-| 14+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
+| 15 | Concurrency: per-run locking for safe parallel runs | Shipped (`v1.8.0`) |
+| 15+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
 
 Each phase has a dedicated checklist file under `docs/phases/`.
 
@@ -321,7 +322,9 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 
 ### Workflow & data
 
-- [ ] **P1** Concurrency: parallel runs + per-run locking in the store.
+- [x] **P1** Concurrency: parallel runs + per-run locking (Phase 15,
+  `v1.8.0`; process-local per-`run_id` locking — cross-process locking
+  remains future work).
 - [x] **P1** Run cancellation + timeout enforcement (Phase 13, `v1.6.0`).
 - [x] **P2** Run deletion + artifact retention / cleanup policy (Phase 14,
   `v1.7.0`; basic per-run deletion — automatic retention policies remain).
@@ -359,10 +362,11 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 
 ### Suggested next phase
 
-**Phase 14 — run deletion + retention** shipped in `v1.7.0`, completing the
-basic run lifecycle (create → list → read → files → delete). The strongest
-remaining **P1** candidates are **concurrency (parallel runs + per-run
-locking in the store)** under *Workflow & data* and **SSE/WebSocket
-streaming of stage progress** under *API & UI*. Concurrency is the
-recommended next step, as it underpins safe parallel execution before
-streaming progress to clients.
+**Phase 15 — concurrency (per-run locking)** shipped in `v1.8.0`, making
+the synchronous pipeline safe under concurrent invocation: same-intent
+runs serialize and resume, distinct runs proceed in parallel. The
+strongest remaining **P1** candidate is **SSE/WebSocket streaming of stage
+progress** under *API & UI*, letting clients observe a run's stage
+timeline live instead of polling. A natural complement is **structured
+per-run progress events** emitted from the pipeline that the streaming
+endpoint can relay.

@@ -13,6 +13,23 @@ policy.
 ### Added
 - (nothing yet)
 
+## [1.8.0] - 2026-05-31
+
+### Added
+- Phase 15: concurrency — per-run locking so the synchronous pipeline is
+  safe under concurrent invocation, with zero new runtime dependencies.
+  - New `aerosynthx.workflow.locking` module: `RunLockRegistry`, a
+    reference-counted registry of per-`run_id` locks. Acquiring the same
+    key serializes callers; distinct keys never contend, and idle entries
+    are reclaimed so the registry tracks active keys only. A shared
+    `DEFAULT_RUN_LOCKS` registry is used by default so separate
+    `Pipeline` instances over the same output root still coordinate.
+  - `Pipeline.run` now acquires the per-run lock around fresh execution
+    with a double-checked resume: a caller queued behind an in-flight run
+    for the same intent returns the freshly cached result instead of
+    rebuilding, while runs for different intents proceed in parallel.
+  - New `aerosynthx_run_lock_waits_total` counter records lock contention.
+
 ## [1.7.0] - 2026-05-31
 
 ### Added
@@ -348,7 +365,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.4.0...v1.5.0

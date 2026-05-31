@@ -440,3 +440,67 @@ def test_delete_run_cleans_orphan_directory(tmp_path: Path) -> None:
     # No store record, but the directory is cleaned up best-effort.
     assert pipe.delete_run("orphan00000000") is False
     assert not orphan.exists()
+
+
+def test_concurrent_same_intent_builds_once(tmp_path: Path) -> None:
+    import threading
+
+    build_count = 0
+    count_guard = threading.Lock()
+
+    class _CountingPipeline(Pipeline):
+        def _run_uncached(self, *args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+            nonlocal build_count
+            with count_guard:
+                build_count += 1
+            return super()._run_uncached(*args, **kwargs)  # type: ignore[arg-type]
+
+    pipe = _CountingPipeline(out_root=tmp_path)
+    start = threading.Barrier(2)
+    results: list[object] = []
+    results_guard = threading.Lock()
+
+    def worker() -> None:
+        start.wait()
+        result = pipe.run(_GOOD_INTENT)
+        with results_guard:
+            results.append(result)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # The second caller queued behind the lock and resumed the cached run.
+    assert build_count == 1
+    run_ids = {r.run_id for r in results}  # type: ignore[attr-defined]
+    assert len(run_ids) == 1
+
+
+def test_concurrent_distinct_intents_both_build(tmp_path: Path) -> None:
+    import threading
+
+    pipe = Pipeline(out_root=tmp_path)
+    intents = [
+        "NACA 2412 at 50 m/s, alpha 3 deg, chord 1.0 m.",
+        "NACA 0012 at 40 m/s, alpha 5 deg, chord 0.5 m.",
+    ]
+    start = threading.Barrier(2)
+    results: dict[str, object] = {}
+    results_guard = threading.Lock()
+
+    def worker(text: str) -> None:
+        start.wait()
+        result = pipe.run(text)
+        with results_guard:
+            results[text] = result
+
+    threads = [threading.Thread(target=worker, args=(text,)) for text in intents]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert {r.status for r in results.values()} == {"completed"}  # type: ignore[attr-defined]
+    assert len({r.run_id for r in results.values()}) == 2  # type: ignore[attr-defined]

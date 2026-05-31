@@ -43,6 +43,7 @@ from aerosynthx.openfoam import (
 from aerosynthx.workflow.cancellation import CancellationToken, RunControl
 from aerosynthx.workflow.db import RunRow, StageRow, open_session
 from aerosynthx.workflow.errors import StageError
+from aerosynthx.workflow.locking import DEFAULT_RUN_LOCKS, RunLockRegistry
 from aerosynthx.workflow.stages import STAGE_ORDER, StageName
 
 _LOG = logging.getLogger("aerosynthx.workflow")
@@ -156,6 +157,7 @@ class Pipeline:
         llm_client: LLMClient | None = None,
         command_runner: CommandRunner | None = None,
         clock: Callable[[], float] | None = None,
+        lock_registry: RunLockRegistry | None = None,
     ) -> None:
         self._out_root = out_root
         self._db_path = db_path if db_path is not None else out_root / _DEFAULT_DB_NAME
@@ -164,6 +166,9 @@ class Pipeline:
             command_runner if command_runner is not None else default_command_runner
         )
         self._clock: Callable[[], float] = clock if clock is not None else time.monotonic
+        self._locks: RunLockRegistry = (
+            lock_registry if lock_registry is not None else DEFAULT_RUN_LOCKS
+        )
 
     @property
     def db_path(self) -> Path:
@@ -271,8 +276,18 @@ class Pipeline:
                 _LOG.info("resume.hit run_id=%s", run_id)
                 return cached
 
-        with bind_correlation_id(run_id):
-            return self._run_uncached(run_id, intent_text, execute=execute, control=control)
+        # Serialize work for this run_id so concurrent callers for the same
+        # intent do not race the shared run directory and DB row. Distinct
+        # run_ids never contend.
+        with self._locks.acquire(run_id):
+            if resume and not execute:
+                # Double-checked: a peer may have finished while we waited.
+                cached = self._maybe_resume(run_id)
+                if cached is not None:
+                    _LOG.info("resume.hit run_id=%s (post-lock)", run_id)
+                    return cached
+            with bind_correlation_id(run_id):
+                return self._run_uncached(run_id, intent_text, execute=execute, control=control)
 
     def _run_uncached(
         self,

@@ -22,6 +22,7 @@ from aerosynthx.workflow.errors import (
     StageError,
     WorkflowError,
 )
+from aerosynthx.workflow.locking import DEFAULT_RUN_LOCKS, RunLockRegistry
 from aerosynthx.workflow.pipeline import (
     Pipeline,
     RunResult,
@@ -31,12 +32,14 @@ from aerosynthx.workflow.pipeline import (
 from aerosynthx.workflow.stages import STAGE_ORDER, StageName
 
 __all__ = [
+    "DEFAULT_RUN_LOCKS",
     "STAGE_ORDER",
     "CancellationToken",
     "Deadline",
     "Pipeline",
     "RunCancelledError",
     "RunControl",
+    "RunLockRegistry",
     "RunNotFoundError",
     "RunResult",
     "RunRow",
