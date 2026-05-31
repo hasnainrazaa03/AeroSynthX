@@ -30,9 +30,12 @@ from aerosynthx.workflow.errors import (
 from aerosynthx.workflow.locking import DEFAULT_RUN_LOCKS, RunLockRegistry
 from aerosynthx.workflow.pipeline import (
     Pipeline,
+    RunListItem,
+    RunPage,
     RunResult,
     StageResult,
     load_run,
+    query_runs,
 )
 from aerosynthx.workflow.progress import ProgressEvent, ProgressSink
 from aerosynthx.workflow.retention import GarbageCollectResult, PruneResult
@@ -52,8 +55,10 @@ __all__ = [
     "PruneResult",
     "RunCancelledError",
     "RunControl",
+    "RunListItem",
     "RunLockRegistry",
     "RunNotFoundError",
+    "RunPage",
     "RunResult",
     "RunRow",
     "RunTimeoutError",
@@ -67,4 +72,5 @@ __all__ = [
     "load_run",
     "main",
     "open_session",
+    "query_runs",
 ]

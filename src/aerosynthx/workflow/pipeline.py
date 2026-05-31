@@ -20,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Final, Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from aerosynthx.intent import (
     DesignIntent,
@@ -857,3 +857,70 @@ def load_run(db_path: Path, run_id: str) -> RunResult | None:
         if row is None:
             return None
         return _row_to_result(row)
+
+
+@dataclass(frozen=True, slots=True)
+class RunListItem:
+    """A lightweight, ORM-free summary of one persisted run."""
+
+    run_id: str
+    status: str
+    intent_text: str
+    created_at_iso: str
+    completed_at_iso: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class RunPage:
+    """A single page of run summaries plus pagination metadata."""
+
+    items: tuple[RunListItem, ...]
+    total: int
+    limit: int
+    offset: int
+
+
+def query_runs(
+    db_path: Path,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    status: str | None = None,
+    q: str | None = None,
+) -> RunPage:
+    """Return a newest-first page of runs, optionally filtered and searched.
+
+    ``status`` filters by exact run status and ``q`` performs a
+    case-insensitive substring search over the stored intent text. ``total`` is
+    the filtered match count, independent of the ``offset``/``limit`` slice.
+    """
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    if not db_path.exists():
+        return RunPage(items=(), total=0, limit=limit, offset=offset)
+    filters = []
+    if status is not None:
+        filters.append(RunRow.status == status)
+    if q:
+        filters.append(RunRow.intent_text.ilike(f"%{q}%"))
+    with open_session(db_path) as session:
+        count_stmt = select(func.count()).select_from(RunRow)
+        for clause in filters:
+            count_stmt = count_stmt.where(clause)
+        total = int(session.execute(count_stmt).scalar_one())
+        stmt = select(RunRow).order_by(RunRow.created_at_iso.desc())
+        for clause in filters:
+            stmt = stmt.where(clause)
+        stmt = stmt.offset(offset).limit(limit)
+        rows = session.execute(stmt).scalars().all()
+        items = tuple(
+            RunListItem(
+                run_id=r.id,
+                status=r.status,
+                intent_text=r.intent_text,
+                created_at_iso=r.created_at_iso,
+                completed_at_iso=r.completed_at_iso,
+            )
+            for r in rows
+        )
+    return RunPage(items=items, total=total, limit=limit, offset=offset)

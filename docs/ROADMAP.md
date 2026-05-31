@@ -1,6 +1,6 @@
 # AeroSynthX — Roadmap
 
-Status: Living document (current release `v1.12.0`).
+Status: Living document (current release `v1.13.0`).
 This roadmap defines phases, milestones, acceptance criteria, and the
 dependencies between them. It is the source of truth for sequencing.
 For the post-v1.2.0 feature backlog, see
@@ -50,7 +50,8 @@ release, (d) an updated `CHANGELOG.md`.
 | 17 | Live pipeline progress events (`on_event`, `run --progress`) | Shipped (`v1.10.0`) |
 | 18 | Content-addressed artifact store (de-dup case files) | Shipped (`v1.11.0`) |
 | 19 | Automatic retention & cleanup (prune runs + blob GC) | Shipped (`v1.12.0`) |
-| 19+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
+| 20 | Run-list pagination, filtering & full-text search | Shipped (`v1.13.0`) |
+| 20+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
 
 Each phase has a dedicated checklist file under `docs/phases/`.
 
@@ -349,7 +350,9 @@ them to a `docs/phases/PHASE_N.md` when picked up.
   `v1.9.0`; SSE replay of the persisted stage timeline). Live
   mid-execution progress events landed in Phase 17, `v1.10.0` (the
   `on_event` sink and `run --progress`).
-- [ ] **P2** Run list pagination, filtering, and full-text search.
+- [x] **P2** Run list pagination, filtering, and full-text search (Phase 20,
+  `v1.13.0`; `offset`/`status`/`q` query params + `X-Total-Count` header,
+  UI search box and Prev/Next paging).
 - [x] **P2** `DELETE /api/v1/runs/{id}` endpoint (Phase 14, `v1.7.0`).
 - [ ] **P2** Charts of physics results + downloadable report in the UI.
 - [ ] **P2** Generated typed client (OpenAPI → TS/Python SDK).
@@ -374,11 +377,11 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 
 ### Suggested next phase
 
-**Phase 19 — automatic retention & cleanup** shipped in `v1.12.0`:
-`Pipeline.prune_runs` deletes runs by age and/or count, `collect_garbage`
-reclaims unreferenced store blobs, exposed via `aerosynthx prune` and
-`POST /api/v1/maintenance/prune`. The strongest remaining candidates are
-**relinking run directories to blobs** (serve files straight from the store
-via hard-links/symlinks so on-disk run trees shrink, under *Workflow &
-data*) and **run list pagination, filtering, and full-text search** (under
-*API & UI*).
+**Phase 20 — run-list pagination, filtering & full-text search** shipped in
+`v1.13.0`: `query_runs` powers `offset`/`status`/`q` on `GET /api/v1/runs`
+with `X-Total-Count` headers and a searchable, paged UI. The strongest
+remaining candidate is **relinking run directories to blobs** (serve files
+straight from the content-addressed store via hard-links/symlinks so on-disk
+run trees shrink, under *Workflow & data*). Other high-value options are
+**charts of physics results + a downloadable report in the UI** and
+**OpenTelemetry tracing** (spans per stage + HTTP, under *Observability*).

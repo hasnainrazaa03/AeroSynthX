@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
@@ -17,7 +17,6 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from aerosynthx import __version__
@@ -27,9 +26,8 @@ from aerosynthx.api.security import ApiKeyStore, Scope, make_api_key_dependency
 from aerosynthx.api.sse import run_event_stream
 from aerosynthx.intent import LLMClient
 from aerosynthx.observability import METRICS, bind_correlation_id, render_prometheus
-from aerosynthx.workflow.db import RunRow, open_session
 from aerosynthx.workflow.errors import StageError
-from aerosynthx.workflow.pipeline import Pipeline, load_run
+from aerosynthx.workflow.pipeline import Pipeline, load_run, query_runs
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -202,21 +200,33 @@ def create_app(
         tags=["runs"],
         dependencies=[auth_read],
     )
-    def list_runs(limit: int = 50) -> list[RunSummary]:
-        limit = max(1, min(limit, 500))
-        with open_session(pipeline.db_path) as session:
-            stmt = select(RunRow).order_by(RunRow.created_at_iso.desc()).limit(limit)
-            rows = session.execute(stmt).scalars().all()
-            return [
-                RunSummary(
-                    run_id=r.id,
-                    status=r.status,
-                    intent_text=r.intent_text,
-                    created_at_iso=r.created_at_iso,
-                    completed_at_iso=r.completed_at_iso,
-                )
-                for r in rows
-            ]
+    def list_runs(
+        response: Response,
+        limit: int = 50,
+        offset: int = 0,
+        status_filter: str | None = Query(default=None, alias="status"),
+        q: str | None = None,
+    ) -> list[RunSummary]:
+        page = query_runs(
+            pipeline.db_path,
+            limit=limit,
+            offset=offset,
+            status=status_filter,
+            q=q,
+        )
+        response.headers["X-Total-Count"] = str(page.total)
+        response.headers["X-Limit"] = str(page.limit)
+        response.headers["X-Offset"] = str(page.offset)
+        return [
+            RunSummary(
+                run_id=item.run_id,
+                status=item.status,
+                intent_text=item.intent_text,
+                created_at_iso=item.created_at_iso,
+                completed_at_iso=item.completed_at_iso,
+            )
+            for item in page.items
+        ]
 
     @app.get("/api/v1/runs/{run_id}", tags=["runs"], dependencies=[auth_read])
     def get_run(run_id: str) -> dict[str, Any]:

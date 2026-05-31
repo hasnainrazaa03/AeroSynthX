@@ -47,13 +47,26 @@
 
       <section class="panel">
         <h2>Run history</h2>
-        <button id="refresh-runs" type="button">Refresh</button>
+        <div class="runs-controls">
+          <input id="runs-search" type="search" placeholder="Search intent text…" />
+          <select id="runs-status">
+            <option value="">All statuses</option>
+            <option value="completed">Completed</option>
+            <option value="failed">Failed</option>
+          </select>
+          <button id="refresh-runs" type="button">Search</button>
+        </div>
         <table id="runs">
           <thead>
             <tr><th>Run ID</th><th>Status</th><th>Created</th><th>Intent</th></tr>
           </thead>
           <tbody></tbody>
         </table>
+        <div class="runs-pager">
+          <button id="runs-prev" type="button" disabled>Prev</button>
+          <span id="runs-page-info"></span>
+          <button id="runs-next" type="button" disabled>Next</button>
+        </div>
       </section>
     </main>
 

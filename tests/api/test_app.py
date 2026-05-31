@@ -101,6 +101,49 @@ def test_list_runs_limit_clamped(client: TestClient) -> None:
     assert client.get("/api/v1/runs?limit=9999").status_code == 200
 
 
+def test_list_runs_pagination_headers_and_offset(client: TestClient) -> None:
+    for velocity in (50, 55, 60):
+        intent = f"NACA 2412 at {velocity} m/s, alpha 3 deg, chord 1.0 m."
+        assert client.post("/api/v1/runs", json={"intent_text": intent}).status_code == 201
+    first = client.get("/api/v1/runs?limit=2&offset=0")
+    assert first.status_code == 200
+    assert first.headers["X-Total-Count"] == "3"
+    assert first.headers["X-Limit"] == "2"
+    assert first.headers["X-Offset"] == "0"
+    assert len(first.json()) == 2
+    second = client.get("/api/v1/runs?limit=2&offset=2")
+    assert second.headers["X-Total-Count"] == "3"
+    assert len(second.json()) == 1
+
+
+def test_list_runs_search_filters_by_intent(client: TestClient) -> None:
+    assert client.post("/api/v1/runs", json={"intent_text": _GOOD}).status_code == 201
+    assert client.post("/api/v1/runs", json={"intent_text": _OTHER}).status_code == 201
+    r = client.get("/api/v1/runs?q=65 m/s")
+    assert r.status_code == 200
+    runs = r.json()
+    assert len(runs) == 1
+    assert "65 m/s" in runs[0]["intent_text"]
+    assert r.headers["X-Total-Count"] == "1"
+
+
+def test_list_runs_status_filter(client: TestClient) -> None:
+    assert client.post("/api/v1/runs", json={"intent_text": _GOOD}).status_code == 201
+    assert (
+        client.post(
+            "/api/v1/runs",
+            json={"intent_text": "totally unparseable gibberish without numbers"},
+        ).status_code
+        == 201
+    )
+    completed = client.get("/api/v1/runs?status=completed").json()
+    assert len(completed) == 1
+    assert completed[0]["status"] == "completed"
+    failed = client.get("/api/v1/runs?status=failed").json()
+    assert len(failed) == 1
+    assert failed[0]["status"] == "failed"
+
+
 def test_get_run(client: TestClient) -> None:
     created = client.post("/api/v1/runs", json={"intent_text": _GOOD}).json()
     r = client.get(f"/api/v1/runs/{created['run_id']}")

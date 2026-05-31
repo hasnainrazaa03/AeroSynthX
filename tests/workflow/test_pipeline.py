@@ -9,12 +9,13 @@ from aerosynthx.intent import DesignIntent
 from aerosynthx.workflow.cancellation import CancellationToken
 from aerosynthx.workflow.db import RunRow, open_session
 from aerosynthx.workflow.errors import StageError
-from aerosynthx.workflow.pipeline import Pipeline, load_run
+from aerosynthx.workflow.pipeline import Pipeline, load_run, query_runs
 
 if TYPE_CHECKING:
     from aerosynthx.openfoam.runner import CommandRunner
 
 _GOOD_INTENT = "NACA 2412 at 50 m/s, alpha 3 deg, chord 1.0 m."
+_OTHER_INTENT = "NACA 2412 at 65 m/s, alpha 3 deg, chord 1.0 m."
 
 
 def test_run_happy_path_produces_all_stage_results(tmp_path: Path) -> None:
@@ -136,6 +137,58 @@ def test_load_run_returns_persisted(tmp_path: Path) -> None:
     assert reloaded.status == "completed"
     assert reloaded.case_dir == result.case_dir
     assert reloaded.manifest_digest == result.manifest_digest
+
+
+def test_query_runs_missing_db_is_empty(tmp_path: Path) -> None:
+    page = query_runs(tmp_path / "missing.db")
+    assert page.items == ()
+    assert page.total == 0
+    assert page.limit == 50
+    assert page.offset == 0
+
+
+def test_query_runs_returns_all_unfiltered(tmp_path: Path) -> None:
+    pipe = Pipeline(out_root=tmp_path)
+    pipe.run(_GOOD_INTENT)
+    pipe.run(_OTHER_INTENT)
+    page = query_runs(pipe.db_path)
+    assert page.total == 2
+    assert len(page.items) == 2
+
+
+def test_query_runs_paginates_and_clamps(tmp_path: Path) -> None:
+    pipe = Pipeline(out_root=tmp_path)
+    for velocity in (50, 55, 60):
+        pipe.run(f"NACA 2412 at {velocity} m/s, alpha 3 deg, chord 1.0 m.")
+    first = query_runs(pipe.db_path, limit=0, offset=-5)
+    assert first.limit == 1
+    assert first.offset == 0
+    assert first.total == 3
+    assert len(first.items) == 1
+    second = query_runs(pipe.db_path, limit=2, offset=2)
+    assert second.total == 3
+    assert len(second.items) == 1
+
+
+def test_query_runs_status_filter(tmp_path: Path) -> None:
+    pipe = Pipeline(out_root=tmp_path)
+    pipe.run(_GOOD_INTENT)
+    pipe.run("totally unparseable gibberish without numbers")
+    completed = query_runs(pipe.db_path, status="completed")
+    assert completed.total == 1
+    assert completed.items[0].status == "completed"
+    failed = query_runs(pipe.db_path, status="failed")
+    assert failed.total == 1
+    assert failed.items[0].status == "failed"
+
+
+def test_query_runs_search_matches_intent(tmp_path: Path) -> None:
+    pipe = Pipeline(out_root=tmp_path)
+    pipe.run(_GOOD_INTENT)
+    pipe.run(_OTHER_INTENT)
+    page = query_runs(pipe.db_path, q="65 M/S")
+    assert page.total == 1
+    assert "65 m/s" in page.items[0].intent_text
 
 
 def test_run_id_normalises_whitespace(tmp_path: Path) -> None:

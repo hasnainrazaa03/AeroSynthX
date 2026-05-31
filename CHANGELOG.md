@@ -13,6 +13,24 @@ policy.
 ### Added
 - (nothing yet)
 
+## [1.13.0] - 2026-05-31
+
+### Added
+- Phase 20: run-list pagination, status filtering, and full-text search,
+  with zero new runtime dependencies.
+  - New `aerosynthx.workflow.query_runs(db_path, *, limit=, offset=,
+    status=, q=)` read helper returns a `RunPage` (a tuple of ORM-free
+    `RunListItem` summaries plus the filtered `total`, `limit`, and
+    `offset`). `status` filters by exact run status and `q` performs a
+    case-insensitive substring search over the stored intent text; a
+    missing database yields an empty page.
+  - `GET /api/v1/runs` gains `offset`, `status`, and `q` query parameters
+    and now returns `X-Total-Count`, `X-Limit`, and `X-Offset` response
+    headers for pagination. The response body remains a list of run
+    summaries (backward compatible).
+  - The static UI gains an intent search box, a status filter, and
+    Prev/Next paging controls driven by the new query parameters.
+
 ## [1.12.0] - 2026-05-31
 
 ### Added
@@ -438,7 +456,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.12.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.13.0...HEAD
+[1.13.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.9.0...v1.10.0
