@@ -208,3 +208,49 @@ def test_use_llm_with_client_invokes_llm(tmp_path: Path) -> None:
     assert r.status_code == 201
     assert r.json()["status"] == "completed"
     assert llm.calls, "LLM client should have been used"
+
+
+@pytest.fixture()
+def auth_client(tmp_path: Path) -> Iterator[TestClient]:
+    app = create_app(out_root=tmp_path, api_keys=["s3cret"])
+    with TestClient(app) as c:
+        yield c
+
+
+def test_auth_rejects_missing_key(auth_client: TestClient) -> None:
+    r = auth_client.post("/api/v1/runs", json={"intent_text": _GOOD})
+    assert r.status_code == 401
+    assert r.headers["WWW-Authenticate"] == "Bearer"
+
+
+def test_auth_rejects_invalid_key(auth_client: TestClient) -> None:
+    r = auth_client.get("/api/v1/runs", headers={"X-API-Key": "nope"})
+    assert r.status_code == 401
+
+
+def test_auth_accepts_x_api_key_header(auth_client: TestClient) -> None:
+    r = auth_client.post(
+        "/api/v1/runs", json={"intent_text": _GOOD}, headers={"X-API-Key": "s3cret"}
+    )
+    assert r.status_code == 201
+
+
+def test_auth_accepts_bearer_token(auth_client: TestClient) -> None:
+    r = auth_client.get("/api/v1/runs", headers={"Authorization": "Bearer s3cret"})
+    assert r.status_code == 200
+
+
+def test_auth_rejects_non_bearer_authorization(auth_client: TestClient) -> None:
+    r = auth_client.get("/api/v1/runs", headers={"Authorization": "Basic s3cret"})
+    assert r.status_code == 401
+
+
+def test_auth_leaves_meta_endpoints_open(auth_client: TestClient) -> None:
+    assert auth_client.get("/healthz").status_code == 200
+    assert auth_client.get("/metrics").status_code == 200
+    assert auth_client.get("/api/v1/version").status_code == 200
+
+
+def test_open_mode_allows_unauthenticated(client: TestClient) -> None:
+    # Default fixture configures no keys -> store disabled -> open access.
+    assert client.get("/api/v1/runs").status_code == 200

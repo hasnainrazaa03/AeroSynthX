@@ -1,8 +1,10 @@
 # AeroSynthX — Roadmap
 
-Status: Draft v0.1.
+Status: Living document (current release `v1.2.0`).
 This roadmap defines phases, milestones, acceptance criteria, and the
 dependencies between them. It is the source of truth for sequencing.
+For the post-v1.2.0 feature backlog, see
+[Forward Backlog & Improvement Checklist](#forward-backlog--improvement-checklist-post-v120).
 
 Every phase ends with: (a) passing tests, (b) updated docs, (c) a tagged
 release, (d) an updated `CHANGELOG.md`.
@@ -28,15 +30,17 @@ release, (d) an updated `CHANGELOG.md`.
 
 | Phase | Theme | Status |
 |---|---|---|
-| 0 | Repository bootstrap & governance | In progress |
-| 1 | Architecture spec + deterministic physics core | Planned |
-| 2 | Geometry engine (NACA 4-digit) + visualization | Planned |
-| 3 | Intent parsing (LLM → validated schema) | Planned |
-| 4 | OpenFOAM case-file generation (templated) | Planned |
-| 5 | Workflow orchestrator + persistence + run history | Planned |
-| 6 | HTTP API + Web UI | Planned |
-| 7 | Hardening: observability, packaging, deployment | Planned |
-| 8+ | Extensions: NACA 5-digit, additional turbulence models, optional solver execution worker, agentic orchestration | Future |
+| 0 | Repository bootstrap & governance | Shipped (`v0.0.1`) |
+| 1 | Architecture spec + deterministic physics core | Shipped (`v0.1.0`) |
+| 2 | Geometry engine (NACA 4-digit) + visualization | Shipped (`v0.2.0`) |
+| 3 | Intent parsing (LLM → validated schema) | Shipped (`v0.3.0`) |
+| 4 | OpenFOAM case-file generation (templated) | Shipped (`v0.4.0`) |
+| 5 | Workflow orchestrator + persistence + run history | Shipped (`v0.5.0`) |
+| 6 | HTTP API + Web UI | Shipped (`v0.6.0`) |
+| 7 | Hardening: observability, packaging, deployment | Shipped (`v1.0.0`) |
+| 8 | LLM provider adapters + offline fallback | Shipped (`v1.1.0`) |
+| 9 | API-key authentication | Shipped (`v1.2.0`) |
+| 10+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
 
 Each phase has a dedicated checklist file under `docs/phases/`.
 
@@ -245,3 +249,107 @@ Phase 0 ─▶ Phase 1 ─▶ Phase 2 ─▶ Phase 4 ─▶ Phase 5 ─▶ Phase
 
 Phase 3 (intent) depends on Phase 1 (physics contracts) but is independent
 of Phase 2 (geometry). Phase 4 depends on both.
+
+---
+
+## Forward Backlog & Improvement Checklist (post-v1.2.0)
+
+A living, prioritised list of features and improvements discovered by
+reviewing the codebase as of `v1.2.0`. Tick items as they ship and link
+them to a `docs/phases/PHASE_N.md` when picked up.
+
+**Priority key** — **P1** next-up / high value · **P2** opportunistic ·
+**P3** long-horizon.
+
+### Security & multi-tenancy
+
+- [ ] **P1** Per-key scopes / roles (RBAC): read-only vs. run-create keys.
+- [ ] **P1** Rate limiting + request body-size limits per key/IP.
+- [ ] **P2** Named keys + audit log (who created which run).
+- [ ] **P2** Key rotation: DB-backed key store with `created/expires`.
+- [ ] **P2** CORS allow-list configuration for browser clients.
+- [ ] **P2** Secret redaction filter for logs (API keys, LLM tokens).
+- [ ] **P3** Multi-tenant run isolation (per-user output directories).
+- [ ] **P3** OAuth2 / OIDC / mTLS for enterprise deployments.
+
+### LLM intent parsing
+
+- [ ] **P1** Retry with exponential backoff on transient provider errors.
+- [ ] **P2** Response caching keyed by prompt hash.
+- [ ] **P2** Token / cost metrics (`aerosynthx_llm_tokens_total`).
+- [ ] **P2** Additional providers (Anthropic Messages API adapter).
+- [ ] **P2** Strict JSON-schema validation of LLM output before accept.
+- [ ] **P3** SSE token streaming surfaced through the API.
+- [ ] **P3** Prompt versioning + golden-output regression tests.
+
+### Physics
+
+- [ ] **P2** NACA 5-digit camber line in the aero model.
+- [ ] **P2** Moist-air (humidity) corrections to density & viscosity.
+- [ ] **P2** Compressibility / real-gas corrections beyond ideal gas.
+- [ ] **P2** Reynolds-dependent drag polars (replace flat estimates).
+- [ ] **P3** Altitudes above 20 km (mesosphere atmosphere model).
+- [ ] **P3** Transonic / supersonic regimes (shock-aware Cd).
+- [ ] **P3** Panel-method / XFOIL integration for higher-fidelity Cl/Cd.
+
+### Geometry
+
+- [ ] **P2** NACA 5-digit airfoil family generator.
+- [ ] **P2** 3D wing builder (taper, sweep, dihedral, twist).
+- [ ] **P3** STL / STEP export of generated surfaces.
+- [ ] **P3** Geometry upload endpoint (user-supplied airfoils).
+
+### OpenFOAM execution
+
+- [ ] **P1** Actually run solvers (`blockMesh` → `simpleFoam`) when the
+      toolchain is present; today we only generate the case directory.
+- [ ] **P2** Mesh generation controls (`snappyHexMesh`, refinement).
+- [ ] **P2** Residual parsing + convergence detection.
+- [ ] **P2** Force-coefficient (Cl/Cd/Cm) extraction post-solve.
+- [ ] **P2** Turbulence-model selection (kOmegaSST, Spalart–Allmaras).
+- [ ] **P3** ParaView / VTK export and screenshot generation.
+
+### Workflow & data
+
+- [ ] **P1** Concurrency: parallel runs + per-run locking in the store.
+- [ ] **P1** Run cancellation + timeout enforcement.
+- [ ] **P2** Run deletion + artifact retention / cleanup policy.
+- [ ] **P2** Postgres backend option (SQLite stays the default).
+- [ ] **P2** Alembic migrations for schema evolution.
+- [ ] **P2** Completion webhooks / callbacks.
+- [ ] **P3** Run comparison / diff view (A vs. B intents).
+- [ ] **P3** Pluggable stage architecture (custom pipeline stages).
+
+### API & UI
+
+- [ ] **P1** SSE / WebSocket streaming of stage progress.
+- [ ] **P2** Run list pagination, filtering, and full-text search.
+- [ ] **P2** `DELETE /api/v1/runs/{id}` endpoint.
+- [ ] **P2** Charts of physics results + downloadable report in the UI.
+- [ ] **P2** Generated typed client (OpenAPI → TS/Python SDK).
+- [ ] **P3** SPA upgrade (React/Vue) once the vanilla bundle outgrows.
+- [ ] **P3** Dark mode + accessibility audit.
+
+### Observability & ops
+
+- [ ] **P2** OpenTelemetry tracing (spans per stage + HTTP).
+- [ ] **P2** Ship Grafana dashboards + Prometheus alert rules.
+- [ ] **P2** Container signing (cosign) + SBOM (CycloneDX / Syft).
+- [ ] **P2** Helm chart / k8s manifests + `docker-compose.yml`.
+- [ ] **P3** Sentry (or similar) error reporting integration.
+- [ ] **P3** Nightly CI: perf-regression gate + dependency scanning.
+
+### Developer experience
+
+- [ ] **P2** Config-file support (`aerosynthx.toml`) + startup env
+      validation with clear error messages.
+- [ ] **P2** Shell completions for the CLI.
+- [ ] **P3** Examples gallery / tutorial notebooks.
+
+### Suggested next phase
+
+**Phase 10 — OpenFOAM solver execution + result extraction** is the
+highest-leverage **P1**: it turns generated cases into real CFD results
+(Cl/Cd/Cm), which every downstream UI/report feature depends on. A strong
+runner-up is **RBAC + rate limiting**, building directly on the Phase 9
+auth foundation.

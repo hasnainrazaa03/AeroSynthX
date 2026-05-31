@@ -36,7 +36,8 @@ items first.
   in the SQLite store.
 
 ### API + UI (Phase 6)
-- **P1** Authentication / API keys.
+- ~~**P1** Authentication / API keys.~~ — **shipped in Phase 9 (v1.2.0)**
+  via `aerosynthx.api.security` (`ApiKeyStore`, `AEROSYNTHX_API_KEYS`).
 - **P2** WebSocket / SSE streaming of stage progress.
 - **P3** Multi-tenant scoping (per-user run isolation).
 - **P3** SPA tooling (React/Vue) once UI complexity outgrows the
@@ -45,8 +46,11 @@ items first.
 ### Hardening / release (Phase 7)
 - **P2** Container signing (cosign) and SBOM publication
   (CycloneDX / Syft).
-- **P1** Auth / RBAC (paired with the Phase 6 auth item).
-- **P1** LLM providers (paired with the Phase 3 item).
+- ~~**P1** Auth / RBAC (paired with the Phase 6 auth item).~~ —
+  authentication **shipped in Phase 9 (v1.2.0)**; RBAC/scopes remain
+  deferred (see [docs/ROADMAP.md](ROADMAP.md)).
+- ~~**P1** LLM providers (paired with the Phase 3 item).~~ —
+  **shipped in Phase 8 (v1.1.0)**.
 - **P2** WebSocket streaming (paired with the Phase 6 item).
 
 ## Phase 8 candidate
@@ -70,3 +74,7 @@ With LLM parsing landed, the next highest-value P1 item is **API
 authentication / API keys** (Phase 6 + Phase 7 carry-over), since the
 `--use-llm` server path now handles provider secrets and benefits from
 access control.
+
+**Status: shipped in Phase 9 (v1.2.0).** See
+[docs/phases/PHASE_9.md](phases/PHASE_9.md). The full forward-looking
+backlog now lives in [docs/ROADMAP.md](ROADMAP.md).

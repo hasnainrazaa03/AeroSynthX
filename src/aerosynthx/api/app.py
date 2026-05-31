@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
@@ -15,6 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from aerosynthx import __version__
 from aerosynthx.api.schemas import RunRequest, RunSummary, VersionInfo
+from aerosynthx.api.security import ApiKeyStore, make_api_key_dependency
 from aerosynthx.intent import LLMClient
 from aerosynthx.observability import METRICS, bind_correlation_id, render_prometheus
 from aerosynthx.workflow.db import RunRow, open_session
@@ -72,7 +74,12 @@ def _safe_resolve(case_dir: Path, relative: str) -> Path:
     return candidate
 
 
-def create_app(*, out_root: Path, llm_client: LLMClient | None = None) -> FastAPI:
+def create_app(
+    *,
+    out_root: Path,
+    llm_client: LLMClient | None = None,
+    api_keys: Iterable[str] | None = None,
+) -> FastAPI:
     """Build a FastAPI app bound to ``out_root``.
 
     Args:
@@ -81,12 +88,17 @@ def create_app(*, out_root: Path, llm_client: LLMClient | None = None) -> FastAP
         llm_client: Optional LLM client enabling ``use_llm`` requests. When
             ``None``, ``use_llm=true`` requests transparently fall back to
             the deterministic offline parser.
+        api_keys: Optional accepted API keys. When omitted, keys are read
+            from ``AEROSYNTHX_API_KEYS``; an empty configuration leaves the
+            data-plane endpoints open (backward compatible).
     """
     out_root.mkdir(parents=True, exist_ok=True)
     pipeline = Pipeline(out_root=out_root)
     llm_pipeline = (
         Pipeline(out_root=out_root, llm_client=llm_client) if llm_client is not None else pipeline
     )
+    store = ApiKeyStore.from_keys(api_keys) if api_keys is not None else ApiKeyStore.from_env()
+    auth = Depends(make_api_key_dependency(store))
 
     app = FastAPI(
         title="AeroSynthX",
@@ -118,6 +130,7 @@ def create_app(*, out_root: Path, llm_client: LLMClient | None = None) -> FastAP
         "/api/v1/runs",
         tags=["runs"],
         status_code=status.HTTP_201_CREATED,
+        dependencies=[auth],
     )
     def create_run(body: RunRequest) -> dict[str, Any]:
         active = llm_pipeline if body.use_llm else pipeline
@@ -130,7 +143,7 @@ def create_app(*, out_root: Path, llm_client: LLMClient | None = None) -> FastAP
             ) from exc
         return result.to_json()
 
-    @app.get("/api/v1/runs", response_model=list[RunSummary], tags=["runs"])
+    @app.get("/api/v1/runs", response_model=list[RunSummary], tags=["runs"], dependencies=[auth])
     def list_runs(limit: int = 50) -> list[RunSummary]:
         limit = max(1, min(limit, 500))
         with open_session(pipeline.db_path) as session:
@@ -147,7 +160,7 @@ def create_app(*, out_root: Path, llm_client: LLMClient | None = None) -> FastAP
                 for r in rows
             ]
 
-    @app.get("/api/v1/runs/{run_id}", tags=["runs"])
+    @app.get("/api/v1/runs/{run_id}", tags=["runs"], dependencies=[auth])
     def get_run(run_id: str) -> dict[str, Any]:
         result = load_run(pipeline.db_path, run_id)
         if result is None:
@@ -157,13 +170,13 @@ def create_app(*, out_root: Path, llm_client: LLMClient | None = None) -> FastAP
             )
         return result.to_json()
 
-    @app.get("/api/v1/runs/{run_id}/files", tags=["runs"])
+    @app.get("/api/v1/runs/{run_id}/files", tags=["runs"], dependencies=[auth])
     def list_run_files(run_id: str) -> dict[str, list[str]]:
         case_dir = _require_case_dir(pipeline, run_id)
         files = sorted(str(p.relative_to(case_dir)) for p in case_dir.rglob("*") if p.is_file())
         return {"files": files}
 
-    @app.get("/api/v1/runs/{run_id}/files/{file_path:path}", tags=["runs"])
+    @app.get("/api/v1/runs/{run_id}/files/{file_path:path}", tags=["runs"], dependencies=[auth])
     def get_run_file(run_id: str, file_path: str) -> FileResponse:
         case_dir = _require_case_dir(pipeline, run_id)
         target = _safe_resolve(case_dir, file_path)

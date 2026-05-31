@@ -13,6 +13,25 @@ policy.
 ### Added
 - (nothing yet)
 
+## [1.2.0] - 2026-05-31
+
+### Added
+- Phase 9: opt-in API-key authentication for the HTTP API
+  (`aerosynthx.api.security`), zero new runtime dependencies.
+  - `ApiKeyStore` holds accepted keys as SHA-256 hashes and verifies in
+    constant time (`hmac.compare_digest`); plaintext keys are never
+    retained. Built from raw keys or `AEROSYNTHX_API_KEYS`.
+  - Data-plane routes (`POST/GET /api/v1/runs`, run detail, file
+    listing/download) require `X-API-Key` or `Authorization: Bearer`;
+    `/healthz`, `/metrics`, `/api/v1/version`, and the UI stay open.
+  - When no keys are configured the API stays in open mode (backward
+    compatible).
+- `create_app(..., api_keys=...)` and `AEROSYNTHX_API_KEYS` env support
+  (read automatically by `aerosynthx serve`).
+- `aerosynthx_auth_attempts_total{result}` metric
+  (result ∈ {ok, missing, invalid, disabled}).
+- `docs/ROADMAP.md`: a living, prioritised feature/improvement checklist.
+
 ## [1.1.0] - 2026-05-31
 
 ### Added
@@ -221,7 +240,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.6.0...v1.0.0
 [0.6.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.5.0...v0.6.0
