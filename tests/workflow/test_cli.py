@@ -42,6 +42,22 @@ def test_show_missing_run_raises(tmp_path: Path, capsys: pytest.CaptureFixture[s
         main(["show", "ffffffffffffffff", "--out", str(tmp_path)])
 
 
+def test_delete_subcommand_succeeds(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
+    run_id = str(_capture(capsys)["run_id"])
+
+    assert main(["delete", run_id, "--out", str(tmp_path)]) == 0
+    assert f"deleted run {run_id}" in capsys.readouterr().out
+    with pytest.raises(RunNotFoundError):
+        main(["show", run_id, "--out", str(tmp_path)])
+
+
+def test_delete_missing_run_raises(tmp_path: Path) -> None:
+    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
+    with pytest.raises(RunNotFoundError):
+        main(["delete", "ffffffffffffffff", "--out", str(tmp_path)])
+
+
 def test_run_failing_intent_returns_nonzero(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

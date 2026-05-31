@@ -13,6 +13,18 @@ policy.
 ### Added
 - (nothing yet)
 
+## [1.7.0] - 2026-05-31
+
+### Added
+- Phase 14: run deletion + retention, with zero new runtime dependencies.
+  - `Pipeline.delete_run(run_id)` removes the store record (its stage rows
+    cascade) and best-effort deletes the run's on-disk directory tree;
+    idempotent, returning whether a record existed.
+  - New `DELETE /api/v1/runs/{run_id}` endpoint (requires the `run`
+    scope): `204 No Content` on success, `404 Not Found` for unknown ids.
+  - New CLI `aerosynthx delete <run_id> --out <dir>` command, raising
+    `RunNotFoundError` for unknown ids (matching `show`).
+
 ## [1.6.0] - 2026-05-31
 
 ### Added
@@ -336,7 +348,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.3.0...v1.4.0

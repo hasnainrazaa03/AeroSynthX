@@ -82,6 +82,19 @@ def test_list_runs(client: TestClient) -> None:
     assert runs[0]["status"] == "completed"
 
 
+def test_delete_run_returns_204(client: TestClient) -> None:
+    created = client.post("/api/v1/runs", json={"intent_text": _GOOD}).json()
+    run_id = created["run_id"]
+    r = client.delete(f"/api/v1/runs/{run_id}")
+    assert r.status_code == 204
+    assert client.get(f"/api/v1/runs/{run_id}").status_code == 404
+
+
+def test_delete_run_missing_returns_404(client: TestClient) -> None:
+    r = client.delete("/api/v1/runs/ffffffffffffffff")
+    assert r.status_code == 404
+
+
 def test_list_runs_limit_clamped(client: TestClient) -> None:
     assert client.get("/api/v1/runs?limit=0").status_code == 200
     assert client.get("/api/v1/runs?limit=9999").status_code == 200

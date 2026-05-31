@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import shutil
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -168,6 +169,29 @@ class Pipeline:
     def db_path(self) -> Path:
         """Path to the SQLite run store."""
         return self._db_path
+
+    def delete_run(self, run_id: str) -> bool:
+        """Delete a run's store record and on-disk artifacts.
+
+        The ``StageRow`` children cascade with the ``RunRow``; the run's
+        directory tree (``<out_root>/runs/<run_id>``) is removed
+        best-effort. Idempotent.
+
+        Returns:
+            ``True`` if a store record existed (and was removed), ``False``
+            otherwise.
+        """
+        removed = False
+        if self._db_path.exists():
+            with open_session(self._db_path) as session:
+                row = session.get(RunRow, run_id)
+                if row is not None:
+                    session.delete(row)
+                    removed = True
+        run_dir = self._out_root / "runs" / run_id
+        if run_dir.exists():
+            shutil.rmtree(run_dir)
+        return removed
 
     def _parse_intent(self, intent_text: str) -> ParseResult:
         """Parse ``intent_text``, preferring the LLM when configured.

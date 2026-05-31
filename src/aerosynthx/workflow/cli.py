@@ -66,6 +66,10 @@ def _build_parser() -> argparse.ArgumentParser:
     show_p.add_argument("run_id", help="Run id returned by `run`.")
     show_p.add_argument("--out", required=True, type=Path, help="Output directory used by `run`.")
 
+    delete_p = sub.add_parser("delete", help="Delete a persisted run and its artifacts.")
+    delete_p.add_argument("run_id", help="Run id returned by `run`.")
+    delete_p.add_argument("--out", required=True, type=Path, help="Output directory used by `run`.")
+
     serve_p = sub.add_parser("serve", help="Start the FastAPI server.")
     serve_p.add_argument("--out", required=True, type=Path, help="Output directory used by runs.")
     serve_p.add_argument("--host", default="127.0.0.1", help="Bind host.")
@@ -130,6 +134,14 @@ def _cmd_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_delete(args: argparse.Namespace) -> int:
+    pipeline = Pipeline(out_root=args.out)
+    if not pipeline.delete_run(args.run_id):
+        raise RunNotFoundError(f"no run with id {args.run_id!r} in {pipeline.db_path}")
+    sys.stdout.write(f"deleted run {args.run_id}\n")
+    return 0
+
+
 def _cmd_serve(args: argparse.Namespace) -> int:
     # Imports deferred so `aerosynthx run`/`show` do not pay the FastAPI cost.
     import uvicorn
@@ -157,6 +169,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_run(args)
     if args.command == "show":
         return _cmd_show(args)
+    if args.command == "delete":
+        return _cmd_delete(args)
     if args.command == "serve":  # pragma: no branch - argparse enforces choice
         return _cmd_serve(args)
     parser.error(f"unknown command: {args.command}")  # pragma: no cover

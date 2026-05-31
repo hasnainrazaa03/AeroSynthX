@@ -175,6 +175,20 @@ def create_app(
             ) from exc
         return result.to_json()
 
+    @app.delete(
+        "/api/v1/runs/{run_id}",
+        tags=["runs"],
+        status_code=status.HTTP_204_NO_CONTENT,
+        dependencies=[auth_run],
+    )
+    def delete_run(run_id: str) -> Response:
+        if not pipeline.delete_run(run_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"no run with id {run_id!r}",
+            )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     @app.get(
         "/api/v1/runs",
         response_model=list[RunSummary],

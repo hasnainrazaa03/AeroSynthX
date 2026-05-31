@@ -44,7 +44,8 @@ release, (d) an updated `CHANGELOG.md`.
 | 11 | RBAC scopes + rate limiting + body-size limits | Shipped (`v1.4.0`) |
 | 12 | LLM retry with exponential backoff | Shipped (`v1.5.0`) |
 | 13 | Run cancellation + timeout enforcement | Shipped (`v1.6.0`) |
-| 13+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
+| 14 | Run deletion + retention (`DELETE /runs/{id}`) | Shipped (`v1.7.0`) |
+| 14+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
 
 Each phase has a dedicated checklist file under `docs/phases/`.
 
@@ -322,7 +323,8 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 
 - [ ] **P1** Concurrency: parallel runs + per-run locking in the store.
 - [x] **P1** Run cancellation + timeout enforcement (Phase 13, `v1.6.0`).
-- [ ] **P2** Run deletion + artifact retention / cleanup policy.
+- [x] **P2** Run deletion + artifact retention / cleanup policy (Phase 14,
+  `v1.7.0`; basic per-run deletion — automatic retention policies remain).
 - [ ] **P2** Postgres backend option (SQLite stays the default).
 - [ ] **P2** Alembic migrations for schema evolution.
 - [ ] **P2** Completion webhooks / callbacks.
@@ -333,7 +335,7 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 
 - [ ] **P1** SSE / WebSocket streaming of stage progress.
 - [ ] **P2** Run list pagination, filtering, and full-text search.
-- [ ] **P2** `DELETE /api/v1/runs/{id}` endpoint.
+- [x] **P2** `DELETE /api/v1/runs/{id}` endpoint (Phase 14, `v1.7.0`).
 - [ ] **P2** Charts of physics results + downloadable report in the UI.
 - [ ] **P2** Generated typed client (OpenAPI → TS/Python SDK).
 - [ ] **P3** SPA upgrade (React/Vue) once the vanilla bundle outgrows.
@@ -357,11 +359,10 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 
 ### Suggested next phase
 
-**Phase 13 — run cancellation + timeout enforcement** shipped in `v1.6.0`,
-giving every run a wall-clock budget and a cooperative cancellation hook.
-The strongest remaining **P1** candidates are **concurrency (parallel runs
-+ per-run locking in the store)** under *Workflow & data* and **SSE/WebSocket
-streaming of stage progress** under *API & UI*. A natural, lower-risk next
-step is **run deletion + retention** — a `DELETE /api/v1/runs/{id}` endpoint
-plus store/artifact cleanup — which rounds out the run lifecycle before the
-larger concurrency work.
+**Phase 14 — run deletion + retention** shipped in `v1.7.0`, completing the
+basic run lifecycle (create → list → read → files → delete). The strongest
+remaining **P1** candidates are **concurrency (parallel runs + per-run
+locking in the store)** under *Workflow & data* and **SSE/WebSocket
+streaming of stage progress** under *API & UI*. Concurrency is the
+recommended next step, as it underpins safe parallel execution before
+streaming progress to clients.

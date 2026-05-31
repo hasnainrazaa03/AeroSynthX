@@ -403,3 +403,40 @@ def test_execute_caps_solver_timeout_to_budget(
 
     assert result.status == "completed"
     assert seen["timeout"] == 30.0
+
+
+# --- Phase 14: run deletion -------------------------------------------
+
+
+def test_delete_run_removes_record_and_artifacts(tmp_path: Path) -> None:
+    pipe = Pipeline(out_root=tmp_path)
+    result = pipe.run(_GOOD_INTENT)
+    run_dir = tmp_path / "runs" / result.run_id
+    assert run_dir.is_dir()
+
+    assert pipe.delete_run(result.run_id) is True
+    assert not run_dir.exists()
+    assert load_run(pipe.db_path, result.run_id) is None
+
+
+def test_delete_run_missing_returns_false(tmp_path: Path) -> None:
+    pipe = Pipeline(out_root=tmp_path)
+    pipe.run(_GOOD_INTENT)  # create the store so the db file exists
+    assert pipe.delete_run("ffffffffffffffff") is False
+
+
+def test_delete_run_without_store_returns_false(tmp_path: Path) -> None:
+    pipe = Pipeline(out_root=tmp_path)
+    assert pipe.delete_run("deadbeef") is False
+
+
+def test_delete_run_cleans_orphan_directory(tmp_path: Path) -> None:
+    pipe = Pipeline(out_root=tmp_path)
+    pipe.run(_GOOD_INTENT)  # ensure the store file exists
+    orphan = tmp_path / "runs" / "orphan00000000"
+    orphan.mkdir(parents=True)
+    (orphan / "stray.txt").write_text("x")
+
+    # No store record, but the directory is cleaned up best-effort.
+    assert pipe.delete_run("orphan00000000") is False
+    assert not orphan.exists()
