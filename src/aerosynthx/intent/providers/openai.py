@@ -11,23 +11,63 @@ from __future__ import annotations
 
 import json
 import os
+import random
+import time
 import urllib.error
 import urllib.request
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from aerosynthx.intent.errors import IntentError
+from aerosynthx.observability import METRICS
 
 _DEFAULT_MODEL = "gpt-4o-mini"
 _DEFAULT_BASE_URL = "https://api.openai.com/v1"
 _DEFAULT_TIMEOUT = 30.0
+
+_DEFAULT_RETRIES = 3
+_DEFAULT_RETRY_BASE_SECONDS = 0.5
+_DEFAULT_RETRY_MAX_SECONDS = 8.0
+
+# HTTP statuses worth retrying: request timeout, too-early, rate limited,
+# and the transient 5xx family.
+_RETRYABLE_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+_RETRY_COUNTER = METRICS.counter(
+    "aerosynthx_llm_retries_total",
+    "LLM provider transport retries, labelled by outcome.",
+    label_names=("outcome",),
+)
 
 
 class ProviderError(IntentError):
     """Raised when an LLM provider transport or decode step fails."""
 
     code = "intent.provider.error"
+
+
+class TransientProviderError(ProviderError):
+    """A retryable provider failure (HTTP 429/5xx or a connection blip)."""
+
+    code = "intent.provider.transient"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str | None = None,
+        status_code: int | None = None,
+        retry_after: float | None = None,
+    ) -> None:
+        super().__init__(message, code=code)
+        self.status_code = status_code
+        self.retry_after = retry_after
+
+
+def _is_retryable_status(status: int) -> bool:
+    """Return ``True`` when an HTTP status code is worth retrying."""
+    return status in _RETRYABLE_STATUS
 
 
 class Transport(Protocol):
@@ -52,12 +92,20 @@ def _urllib_transport(
             body = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:  # pragma: no cover - exercised via fake transport
         detail = exc.read().decode("utf-8", "replace") if hasattr(exc, "read") else str(exc)
+        if _is_retryable_status(exc.code):
+            retry_after_raw = exc.headers.get("Retry-After") if exc.headers else None
+            raise TransientProviderError(
+                f"provider returned HTTP {exc.code}: {detail}",
+                code="intent.provider.http_error",
+                status_code=exc.code,
+                retry_after=_parse_retry_after(retry_after_raw),
+            ) from exc
         raise ProviderError(
             f"provider returned HTTP {exc.code}: {detail}",
             code="intent.provider.http_error",
         ) from exc
     except urllib.error.URLError as exc:  # pragma: no cover - network failure
-        raise ProviderError(
+        raise TransientProviderError(
             f"provider request failed: {exc.reason}",
             code="intent.provider.unreachable",
         ) from exc
@@ -69,6 +117,44 @@ def _urllib_transport(
             code="intent.provider.bad_body",
         ) from exc
     return decoded
+
+
+def _parse_retry_after(raw: str | None) -> float | None:
+    """Parse a numeric ``Retry-After`` header value into seconds."""
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+@dataclass(frozen=True)
+class RetryPolicy:
+    """Exponential-backoff settings for transient provider failures.
+
+    ``sleep`` and ``rng`` are injectable so backoff is deterministic in
+    tests; in production they default to :func:`time.sleep` and
+    :func:`random.random`.
+    """
+
+    max_attempts: int = _DEFAULT_RETRIES
+    base_delay: float = _DEFAULT_RETRY_BASE_SECONDS
+    max_delay: float = _DEFAULT_RETRY_MAX_SECONDS
+    multiplier: float = 2.0
+    jitter: float = 0.1
+    sleep: Callable[[float], None] = time.sleep
+    rng: Callable[[], float] = random.random
+
+    def delay_for(self, retry_index: int) -> float:
+        """Return the backoff delay (seconds) before retry ``retry_index``.
+
+        ``retry_index`` is zero-based: ``0`` is the wait before the first
+        retry. The delay grows geometrically, is capped at ``max_delay``,
+        and has additive jitter of up to ``jitter`` of the capped value.
+        """
+        capped = min(self.base_delay * (self.multiplier**retry_index), self.max_delay)
+        return capped + self.jitter * capped * self.rng()
 
 
 @dataclass(frozen=True)
@@ -95,9 +181,11 @@ class OpenAICompatibleClient:
         config: ProviderConfig | None = None,
         *,
         transport: Transport | None = None,
+        retry_policy: RetryPolicy | None = None,
     ) -> None:
         self._config = config if config is not None else ProviderConfig()
         self._transport: Transport = transport if transport is not None else _urllib_transport
+        self._retry = retry_policy if retry_policy is not None else RetryPolicy()
 
     def complete_json(
         self,
@@ -127,13 +215,30 @@ class OpenAICompatibleClient:
             "temperature": 0,
         }
 
-        reply = self._transport(
+        reply = self._call_with_retry(
             url=cfg.chat_completions_url,
             headers=headers,
             payload=payload,
             timeout=cfg.timeout,
         )
         return _extract_json_content(reply)
+
+    def _call_with_retry(
+        self, *, url: str, headers: Mapping[str, str], payload: dict[str, Any], timeout: float
+    ) -> dict[str, Any]:
+        """Invoke the transport, retrying transient failures with backoff."""
+        policy = self._retry
+        attempt = 0
+        while True:
+            try:
+                return self._transport(url=url, headers=headers, payload=payload, timeout=timeout)
+            except TransientProviderError:
+                attempt += 1
+                if attempt >= policy.max_attempts:
+                    _RETRY_COUNTER.inc(outcome="exhausted")
+                    raise
+                _RETRY_COUNTER.inc(outcome="retry")
+                policy.sleep(policy.delay_for(attempt - 1))
 
 
 def _extract_json_content(reply: dict[str, Any]) -> dict[str, Any]:
@@ -197,10 +302,48 @@ def build_client_from_env(
             code="intent.provider.bad_timeout",
         ) from exc
 
+    retry_policy = RetryPolicy(
+        max_attempts=_env_int(source, "AEROSYNTHX_LLM_RETRIES", _DEFAULT_RETRIES),
+        base_delay=_env_float(
+            source, "AEROSYNTHX_LLM_RETRY_BASE_SECONDS", _DEFAULT_RETRY_BASE_SECONDS
+        ),
+        max_delay=_env_float(
+            source, "AEROSYNTHX_LLM_RETRY_MAX_SECONDS", _DEFAULT_RETRY_MAX_SECONDS
+        ),
+    )
+
     config = ProviderConfig(
         model=source.get("AEROSYNTHX_LLM_MODEL", "").strip() or _DEFAULT_MODEL,
         base_url=source.get("AEROSYNTHX_LLM_BASE_URL", "").strip() or _DEFAULT_BASE_URL,
         api_key=source.get("AEROSYNTHX_LLM_API_KEY", "").strip() or None,
         timeout=timeout,
     )
-    return OpenAICompatibleClient(config)
+    return OpenAICompatibleClient(config, retry_policy=retry_policy)
+
+
+def _env_int(source: Mapping[str, str], name: str, default: int) -> int:
+    """Parse an integer env var, raising ``ProviderError`` on bad input."""
+    raw = source.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise ProviderError(
+            f"{name} must be an integer, got {raw!r}",
+            code="intent.provider.bad_retry",
+        ) from exc
+
+
+def _env_float(source: Mapping[str, str], name: str, default: float) -> float:
+    """Parse a float env var, raising ``ProviderError`` on bad input."""
+    raw = source.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise ProviderError(
+            f"{name} must be numeric, got {raw!r}",
+            code="intent.provider.bad_retry",
+        ) from exc

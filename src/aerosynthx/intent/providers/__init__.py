@@ -15,6 +15,8 @@ from aerosynthx.intent.providers.openai import (
     OpenAICompatibleClient,
     ProviderConfig,
     ProviderError,
+    RetryPolicy,
+    TransientProviderError,
     Transport,
     build_client_from_env,
 )
@@ -23,6 +25,8 @@ __all__ = [
     "OpenAICompatibleClient",
     "ProviderConfig",
     "ProviderError",
+    "RetryPolicy",
+    "TransientProviderError",
     "Transport",
     "build_client_from_env",
 ]

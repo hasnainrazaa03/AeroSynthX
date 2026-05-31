@@ -13,6 +13,28 @@ policy.
 ### Added
 - (nothing yet)
 
+## [1.5.0] - 2026-05-31
+
+### Added
+- Phase 12: automatic retry with exponential backoff for transient LLM
+  provider failures (`aerosynthx.intent.providers.openai`), with zero new
+  runtime dependencies.
+  - New `TransientProviderError` (`code="intent.provider.transient"`)
+    classifies retryable failures — HTTP `408/425/429/500/502/503/504`
+    and connection errors — carrying `status_code` and a parsed
+    `Retry-After` when present.
+  - `RetryPolicy` (frozen dataclass) controls `max_attempts`,
+    `base_delay`, `max_delay`, `multiplier`, and `jitter`; its `sleep`
+    and `rng` callables are injectable so backoff is deterministic in
+    tests. `OpenAICompatibleClient` retries transient transport failures
+    transparently and re-raises permanent errors immediately.
+  - New `aerosynthx_llm_retries_total{outcome}` counter
+    (`outcome ∈ {retry, exhausted}`).
+  - `build_client_from_env` reads `AEROSYNTHX_LLM_RETRIES` (default 3),
+    `AEROSYNTHX_LLM_RETRY_BASE_SECONDS` (default 0.5), and
+    `AEROSYNTHX_LLM_RETRY_MAX_SECONDS` (default 8.0); non-numeric values
+    raise `ProviderError` (`code="intent.provider.bad_retry"`).
+
 ## [1.4.0] - 2026-05-31
 
 ### Added
@@ -293,7 +315,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.1.0...v1.2.0

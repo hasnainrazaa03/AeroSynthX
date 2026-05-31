@@ -11,6 +11,8 @@ from aerosynthx.intent.providers import (
     OpenAICompatibleClient,
     ProviderConfig,
     ProviderError,
+    RetryPolicy,
+    TransientProviderError,
     build_client_from_env,
 )
 from aerosynthx.intent.providers import openai as openai_mod
@@ -176,3 +178,139 @@ def test_urllib_transport_posts_and_decodes(monkeypatch: pytest.MonkeyPatch) -> 
 def test_default_client_uses_urllib_transport() -> None:
     client = OpenAICompatibleClient()
     assert client._transport is openai_mod._urllib_transport
+
+
+# --- Phase 12: retry with exponential backoff ---------------------------------
+
+
+def test_is_retryable_status_classifies_codes() -> None:
+    for code in (408, 425, 429, 500, 502, 503, 504):
+        assert openai_mod._is_retryable_status(code)
+    for code in (200, 400, 401, 403, 404, 422):
+        assert not openai_mod._is_retryable_status(code)
+
+
+def test_parse_retry_after_handles_values() -> None:
+    assert openai_mod._parse_retry_after(None) is None
+    assert openai_mod._parse_retry_after("2.5") == 2.5
+    assert openai_mod._parse_retry_after("not-a-number") is None
+
+
+def test_delay_for_grows_caps_and_jitters() -> None:
+    policy = RetryPolicy(
+        base_delay=1.0, max_delay=10.0, multiplier=2.0, jitter=0.0, rng=lambda: 0.5
+    )
+    assert policy.delay_for(0) == 1.0
+    assert policy.delay_for(1) == 2.0
+    assert policy.delay_for(2) == 4.0
+    # Capped at max_delay.
+    assert policy.delay_for(10) == 10.0
+
+
+def test_delay_for_applies_jitter() -> None:
+    policy = RetryPolicy(
+        base_delay=2.0, max_delay=10.0, multiplier=2.0, jitter=0.5, rng=lambda: 1.0
+    )
+    # capped=2.0, jitter term = 0.5 * 2.0 * 1.0 = 1.0 -> 3.0
+    assert policy.delay_for(0) == 3.0
+
+
+def _transient() -> TransientProviderError:
+    return TransientProviderError("boom", status_code=503)
+
+
+def test_retry_then_succeed() -> None:
+    intent = _valid_intent_dict()
+    calls = {"n": 0}
+    slept: list[float] = []
+
+    def flaky_transport(**_: Any) -> dict[str, Any]:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise _transient()
+        return _chat_reply(intent)
+
+    policy = RetryPolicy(max_attempts=3, base_delay=1.0, jitter=0.0, sleep=slept.append)
+    client = OpenAICompatibleClient(transport=flaky_transport, retry_policy=policy)
+    out = client.complete_json(system_prompt="s", user_prompt="u", schema={})
+    assert out == intent
+    assert calls["n"] == 3
+    # Two backoff sleeps: delay_for(0)=1.0, delay_for(1)=2.0.
+    assert slept == [1.0, 2.0]
+
+
+def test_retry_exhausts_and_raises() -> None:
+    slept: list[float] = []
+
+    def always_transient(**_: Any) -> dict[str, Any]:
+        raise _transient()
+
+    policy = RetryPolicy(max_attempts=2, base_delay=1.0, jitter=0.0, sleep=slept.append)
+    client = OpenAICompatibleClient(transport=always_transient, retry_policy=policy)
+    with pytest.raises(TransientProviderError):
+        client.complete_json(system_prompt="s", user_prompt="u", schema={})
+    # One retry sleep before giving up on the second attempt.
+    assert slept == [1.0]
+
+
+def test_permanent_error_is_not_retried() -> None:
+    calls = {"n": 0}
+
+    def permanent(**_: Any) -> dict[str, Any]:
+        calls["n"] += 1
+        raise ProviderError("nope", code="intent.provider.http_error")
+
+    policy = RetryPolicy(max_attempts=5, sleep=lambda _: None)
+    client = OpenAICompatibleClient(transport=permanent, retry_policy=policy)
+    with pytest.raises(ProviderError):
+        client.complete_json(system_prompt="s", user_prompt="u", schema={})
+    assert calls["n"] == 1
+
+
+def test_build_client_reads_retry_overrides() -> None:
+    client = build_client_from_env(
+        {
+            "AEROSYNTHX_LLM_PROVIDER": "openai",
+            "AEROSYNTHX_LLM_RETRIES": "5",
+            "AEROSYNTHX_LLM_RETRY_BASE_SECONDS": "0.25",
+            "AEROSYNTHX_LLM_RETRY_MAX_SECONDS": "16",
+        }
+    )
+    assert isinstance(client, OpenAICompatibleClient)
+    assert client._retry.max_attempts == 5
+    assert client._retry.base_delay == 0.25
+    assert client._retry.max_delay == 16.0
+
+
+def test_build_client_uses_default_retry_policy() -> None:
+    client = build_client_from_env({"AEROSYNTHX_LLM_PROVIDER": "openai"})
+    assert isinstance(client, OpenAICompatibleClient)
+    assert client._retry.max_attempts == 3
+    assert client._retry.base_delay == 0.5
+    assert client._retry.max_delay == 8.0
+
+
+def test_build_client_rejects_bad_retries() -> None:
+    with pytest.raises(ProviderError) as exc:
+        build_client_from_env(
+            {"AEROSYNTHX_LLM_PROVIDER": "openai", "AEROSYNTHX_LLM_RETRIES": "lots"}
+        )
+    assert exc.value.code == "intent.provider.bad_retry"
+
+
+def test_build_client_rejects_bad_retry_base() -> None:
+    with pytest.raises(ProviderError) as exc:
+        build_client_from_env(
+            {
+                "AEROSYNTHX_LLM_PROVIDER": "openai",
+                "AEROSYNTHX_LLM_RETRY_BASE_SECONDS": "soon",
+            }
+        )
+    assert exc.value.code == "intent.provider.bad_retry"
+
+
+def test_transient_error_carries_metadata() -> None:
+    err = TransientProviderError("x", status_code=429, retry_after=3.0)
+    assert err.status_code == 429
+    assert err.retry_after == 3.0
+    assert err.code == "intent.provider.transient"
