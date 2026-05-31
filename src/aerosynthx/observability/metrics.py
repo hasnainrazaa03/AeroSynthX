@@ -135,14 +135,16 @@ def _fmt_bound(value: float) -> str:
 class _Registry:
     counters: dict[str, Counter] = field(default_factory=dict)
     histograms: dict[str, Histogram] = field(default_factory=dict)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def counter(self, name: str, help: str, label_names: tuple[str, ...] = ()) -> Counter:
-        existing = self.counters.get(name)
-        if existing is not None:
-            return existing
-        c = Counter(name=name, help=help, label_names=label_names)
-        self.counters[name] = c
-        return c
+        with self._lock:
+            existing = self.counters.get(name)
+            if existing is not None:
+                return existing
+            c = Counter(name=name, help=help, label_names=label_names)
+            self.counters[name] = c
+            return c
 
     def histogram(
         self,
@@ -151,17 +153,19 @@ class _Registry:
         label_names: tuple[str, ...] = (),
         buckets: tuple[float, ...] = _DEFAULT_BUCKETS,
     ) -> Histogram:
-        existing = self.histograms.get(name)
-        if existing is not None:
-            return existing
-        h = Histogram(name=name, help=help, label_names=label_names, buckets=buckets)
-        self.histograms[name] = h
-        return h
+        with self._lock:
+            existing = self.histograms.get(name)
+            if existing is not None:
+                return existing
+            h = Histogram(name=name, help=help, label_names=label_names, buckets=buckets)
+            self.histograms[name] = h
+            return h
 
     def reset(self) -> None:
         """Drop all registered metrics (used by tests)."""
-        self.counters.clear()
-        self.histograms.clear()
+        with self._lock:
+            self.counters.clear()
+            self.histograms.clear()
 
 
 METRICS = _Registry()

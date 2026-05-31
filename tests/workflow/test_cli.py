@@ -106,3 +106,31 @@ def test_serve_subcommand_invokes_uvicorn(tmp_path: Path, monkeypatch: pytest.Mo
     assert rc == 0
     assert calls["app"] is not None
     assert calls["kwargs"] == {"host": "127.0.0.1", "port": 9999, "log_level": "info"}
+
+
+def test_run_use_llm_without_provider_warns_and_uses_offline(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # No AEROSYNTHX_LLM_PROVIDER -> build_client_from_env returns None.
+    monkeypatch.delenv("AEROSYNTHX_LLM_PROVIDER", raising=False)
+    rc = main(["run", "--intent", _GOOD, "--out", str(tmp_path), "--use-llm"])
+    assert rc == 0
+    payload = _capture(capsys)
+    assert payload["status"] == "completed"
+
+
+def test_run_use_llm_with_provider_builds_client(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import aerosynthx.intent as intent_pkg
+    from aerosynthx.intent import StaticLLMClient, parse_offline
+
+    payload = parse_offline(_GOOD).intent.model_dump(mode="json")
+
+    def fake_build(env: object = None) -> StaticLLMClient:
+        return StaticLLMClient([payload])
+
+    monkeypatch.setattr(intent_pkg, "build_client_from_env", fake_build)
+    rc = main(["run", "--intent", _GOOD, "--out", str(tmp_path), "--use-llm"])
+    assert rc == 0
+    assert _capture(capsys)["status"] == "completed"

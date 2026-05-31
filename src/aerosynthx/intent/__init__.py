@@ -23,6 +23,12 @@ from aerosynthx.intent.errors import (
 from aerosynthx.intent.llm import LLMClient, StaticLLMClient
 from aerosynthx.intent.offline import OFFLINE_MODEL_NAME, parse_offline
 from aerosynthx.intent.parser import IntentParser
+from aerosynthx.intent.providers import (
+    OpenAICompatibleClient,
+    ProviderConfig,
+    ProviderError,
+    build_client_from_env,
+)
 from aerosynthx.intent.schemas import (
     AirfoilSpec,
     Assumption,
@@ -44,10 +50,14 @@ __all__ = [
     "IntentParser",
     "LLMClient",
     "LLMParseError",
+    "OpenAICompatibleClient",
     "ParseResult",
     "ProvenanceMap",
+    "ProviderConfig",
+    "ProviderError",
     "SchemaValidationError",
     "StaticLLMClient",
+    "build_client_from_env",
     "design_intent_json_schema",
     "parse_offline",
 ]

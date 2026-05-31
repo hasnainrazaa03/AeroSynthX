@@ -15,6 +15,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from aerosynthx import __version__
 from aerosynthx.api.schemas import RunRequest, RunSummary, VersionInfo
+from aerosynthx.intent import LLMClient
 from aerosynthx.observability import METRICS, bind_correlation_id, render_prometheus
 from aerosynthx.workflow.db import RunRow, open_session
 from aerosynthx.workflow.errors import StageError
@@ -71,15 +72,21 @@ def _safe_resolve(case_dir: Path, relative: str) -> Path:
     return candidate
 
 
-def create_app(*, out_root: Path) -> FastAPI:
+def create_app(*, out_root: Path, llm_client: LLMClient | None = None) -> FastAPI:
     """Build a FastAPI app bound to ``out_root``.
 
     Args:
         out_root: Directory used by the underlying :class:`Pipeline`.
             Will be created on first use.
+        llm_client: Optional LLM client enabling ``use_llm`` requests. When
+            ``None``, ``use_llm=true`` requests transparently fall back to
+            the deterministic offline parser.
     """
     out_root.mkdir(parents=True, exist_ok=True)
     pipeline = Pipeline(out_root=out_root)
+    llm_pipeline = (
+        Pipeline(out_root=out_root, llm_client=llm_client) if llm_client is not None else pipeline
+    )
 
     app = FastAPI(
         title="AeroSynthX",
@@ -113,8 +120,9 @@ def create_app(*, out_root: Path) -> FastAPI:
         status_code=status.HTTP_201_CREATED,
     )
     def create_run(body: RunRequest) -> dict[str, Any]:
+        active = llm_pipeline if body.use_llm else pipeline
         try:
-            result = pipeline.run(body.intent_text, resume=body.resume)
+            result = active.run(body.intent_text, resume=body.resume)
         except StageError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

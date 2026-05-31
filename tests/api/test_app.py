@@ -188,3 +188,23 @@ def test_response_includes_correlation_id_header(client: TestClient) -> None:
 def test_correlation_id_round_trips(client: TestClient) -> None:
     r = client.get("/healthz", headers={"X-Correlation-Id": "my-trace-1"})
     assert r.headers["X-Correlation-Id"] == "my-trace-1"
+
+
+def test_use_llm_without_client_falls_back(client: TestClient) -> None:
+    # Default app has no llm_client; use_llm must still succeed (offline).
+    r = client.post("/api/v1/runs", json={"intent_text": _GOOD, "use_llm": True})
+    assert r.status_code == 201
+    assert r.json()["status"] == "completed"
+
+
+def test_use_llm_with_client_invokes_llm(tmp_path: Path) -> None:
+    from aerosynthx.intent import StaticLLMClient, parse_offline
+
+    payload = parse_offline(_GOOD).intent.model_dump(mode="json")
+    llm = StaticLLMClient([payload])
+    app = create_app(out_root=tmp_path, llm_client=llm)
+    with TestClient(app) as c:
+        r = c.post("/api/v1/runs", json={"intent_text": _GOOD, "use_llm": True})
+    assert r.status_code == 201
+    assert r.json()["status"] == "completed"
+    assert llm.calls, "LLM client should have been used"

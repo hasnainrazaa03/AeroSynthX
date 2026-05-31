@@ -20,6 +20,9 @@ from typing import Any, Final, Literal
 from aerosynthx.intent import (
     DesignIntent,
     IntentError,
+    IntentParser,
+    LLMClient,
+    ParseResult,
     parse_offline,
 )
 from aerosynthx.observability import METRICS, bind_correlation_id
@@ -45,6 +48,11 @@ _RUN_COUNTER = METRICS.counter(
     "aerosynthx_pipeline_runs_total",
     "Total pipeline runs, labelled by final status.",
     label_names=("status",),
+)
+_PARSE_COUNTER = METRICS.counter(
+    "aerosynthx_intent_parse_total",
+    "Intent parse attempts, labelled by mode and outcome.",
+    label_names=("mode", "status"),
 )
 
 _StageStatus = Literal["ok", "skipped", "failed", "pending"]
@@ -113,14 +121,53 @@ def _flow_state_dict(state: FlowState) -> dict[str, Any]:
 class Pipeline:
     """Staged execution of the full AeroSynthX text-to-case workflow."""
 
-    def __init__(self, *, out_root: Path, db_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        out_root: Path,
+        db_path: Path | None = None,
+        llm_client: LLMClient | None = None,
+    ) -> None:
         self._out_root = out_root
         self._db_path = db_path if db_path is not None else out_root / _DEFAULT_DB_NAME
+        self._llm_client = llm_client
 
     @property
     def db_path(self) -> Path:
         """Path to the SQLite run store."""
         return self._db_path
+
+    def _parse_intent(self, intent_text: str) -> ParseResult:
+        """Parse ``intent_text``, preferring the LLM when configured.
+
+        When an LLM client is configured the LLM is tried first; any
+        :class:`IntentError` triggers a deterministic offline fallback so
+        a transient provider failure never breaks a run. The chosen mode
+        and outcome are recorded in ``aerosynthx_intent_parse_total``.
+        """
+        if self._llm_client is None:
+            result = parse_offline(intent_text)
+            _PARSE_COUNTER.inc(mode="offline", status="ok")
+            return result
+
+        parser = IntentParser(self._llm_client, model_name="llm")
+        try:
+            result = parser.parse(intent_text)
+        except IntentError as exc:
+            _PARSE_COUNTER.inc(mode="llm", status="error")
+            _LOG.warning(
+                "llm parse failed; falling back to offline",
+                extra={"error": str(exc)},
+            )
+            try:
+                fallback = parse_offline(intent_text)
+            except IntentError:
+                _PARSE_COUNTER.inc(mode="fallback", status="error")
+                raise
+            _PARSE_COUNTER.inc(mode="fallback", status="ok")
+            return fallback
+        _PARSE_COUNTER.inc(mode="llm", status="ok")
+        return result
 
     def run(self, intent_text: str, *, resume: bool = True) -> RunResult:
         """Execute every pipeline stage for ``intent_text``.
@@ -166,7 +213,7 @@ class Pipeline:
         # --- parse -------------------------------------------------
         with _timed(StageName.PARSE) as record:
             try:
-                parse_result = parse_offline(intent_text)
+                parse_result = self._parse_intent(intent_text)
                 intent = parse_result.intent
                 record["digest"] = _sha256_of_json(intent.model_dump(mode="json"))
             except IntentError as exc:

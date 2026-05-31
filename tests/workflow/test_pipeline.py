@@ -191,3 +191,44 @@ def test_run_handles_unexpected_stage_exception(
     compute = next(s for s in result.stages if s.name == "compute")
     assert compute.status == "failed"
     assert "kaboom" in (compute.error or "")
+
+
+def _valid_intent_payload() -> dict[str, object]:
+    from aerosynthx.intent import parse_offline
+
+    return parse_offline(_GOOD_INTENT).intent.model_dump(mode="json")
+
+
+def test_run_uses_llm_client_when_provided(tmp_path: Path) -> None:
+    from aerosynthx.intent import StaticLLMClient
+
+    client = StaticLLMClient([_valid_intent_payload()])
+    pipe = Pipeline(out_root=tmp_path, llm_client=client)
+    result = pipe.run(_GOOD_INTENT, resume=False)
+    assert result.status == "completed"
+    assert client.calls, "LLM client should have been invoked"
+
+
+def test_run_falls_back_to_offline_on_llm_failure(tmp_path: Path) -> None:
+    from aerosynthx.intent import StaticLLMClient
+
+    # An empty response queue makes the parser raise, forcing fallback.
+    client = StaticLLMClient([{"not": "valid"}, {"still": "bad"}, {"nope": True}])
+    pipe = Pipeline(out_root=tmp_path, llm_client=client)
+    result = pipe.run(_GOOD_INTENT, resume=False)
+    assert result.status == "completed"
+    parse = next(s for s in result.stages if s.name == "parse")
+    assert parse.status == "ok"
+
+
+def test_run_records_failure_when_llm_and_offline_both_fail(tmp_path: Path) -> None:
+    from aerosynthx.intent import StaticLLMClient
+
+    # LLM returns junk (parser raises) AND the prose is unparseable offline,
+    # so the fallback also raises -> the parse stage must fail cleanly.
+    client = StaticLLMClient([{"bad": 1}, {"bad": 2}, {"bad": 3}])
+    pipe = Pipeline(out_root=tmp_path, llm_client=client)
+    result = pipe.run("totally unparseable gibberish", resume=False)
+    assert result.status == "failed"
+    parse = next(s for s in result.stages if s.name == "parse")
+    assert parse.status == "failed"

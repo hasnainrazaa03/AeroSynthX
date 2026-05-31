@@ -13,6 +13,31 @@ policy.
 ### Added
 - (nothing yet)
 
+## [1.1.0] - 2026-05-31
+
+### Added
+- Phase 8: opt-in LLM provider adapters (`aerosynthx.intent.providers`),
+  zero new runtime dependencies.
+  - `OpenAICompatibleClient` speaks the OpenAI `/chat/completions` shape
+    (OpenAI, Azure, Ollama, vLLM, LM Studio) over stdlib `urllib`, with
+    an injectable `transport` seam for offline testing.
+  - `ProviderConfig`, `ProviderError`, and `build_client_from_env()`
+    reading `AEROSYNTHX_LLM_*` environment variables (returns `None`
+    when unset so the default stays fully offline).
+- `Pipeline(..., llm_client=...)`: when configured, the parse stage uses
+  the LLM first and transparently falls back to the deterministic
+  offline parser on any failure.
+- `aerosynthx run --use-llm` CLI flag and an optional `use_llm` field on
+  `POST /api/v1/runs`; `create_app(..., llm_client=...)` enables it.
+- `aerosynthx_intent_parse_total{mode,status}` metric
+  (mode ∈ {offline, llm, fallback}).
+
+### Fixed
+- Record `aerosynthx_intent_parse_total{mode="fallback",status="error"}`
+  when both the LLM and offline parsers fail (previously unrecorded).
+- Guard `_Registry` counter/histogram registration and `reset()` with a
+  lock to avoid duplicate metric instances under concurrent first-use.
+
 ## [1.0.0] - 2026-05-25
 
 ### Added
@@ -196,7 +221,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.6.0...v1.0.0
 [0.6.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.4.0...v0.5.0

@@ -45,6 +45,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Re-execute even if a completed run already exists.",
     )
+    run_p.add_argument(
+        "--use-llm",
+        action="store_true",
+        help="Parse with the configured LLM provider (AEROSYNTHX_LLM_* env vars).",
+    )
 
     show_p = sub.add_parser("show", help="Print a persisted run as JSON to stdout.")
     show_p.add_argument("run_id", help="Run id returned by `run`.")
@@ -63,7 +68,16 @@ def _print_result(result: RunResult) -> None:
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
-    pipeline = Pipeline(out_root=args.out)
+    llm_client = None
+    if args.use_llm:
+        from aerosynthx.intent import build_client_from_env
+
+        llm_client = build_client_from_env()
+        if llm_client is None:
+            _LOG.warning(
+                "--use-llm given but AEROSYNTHX_LLM_PROVIDER is unset; using offline parser"
+            )
+    pipeline = Pipeline(out_root=args.out, llm_client=llm_client)
     try:
         result = pipeline.run(args.intent, resume=not args.no_resume)
     except StageError as exc:
@@ -87,8 +101,9 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
     from aerosynthx.api import create_app
+    from aerosynthx.intent import build_client_from_env
 
-    app = create_app(out_root=args.out)
+    app = create_app(out_root=args.out, llm_client=build_client_from_env())
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
     return 0
 

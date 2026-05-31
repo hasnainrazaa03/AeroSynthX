@@ -22,14 +22,13 @@ items first.
 - **P2** NACA 5-digit airfoil family generator.
 
 ### Intent (Phase 3)
-- **P1** LLM provider adapters (`aerosynthx.intent.llm`):
-  - OpenAI / Azure / Ollama back-ends behind the existing protocol.
-  - Deterministic offline fallback already exists; LLM path only adds
-    coverage for ambiguous prose.
-  - Configurable via env vars; no network calls by default.
+- ~~**P1** LLM provider adapters~~ — **shipped in Phase 8 (v1.1.0)**
+  via `aerosynthx.intent.providers` (`OpenAICompatibleClient`,
+  `build_client_from_env`).
 
 ### Workflow + CLI (Phase 5)
-- **P1** LLM mode wired into `aerosynthx run --use-llm`.
+- ~~**P1** LLM mode wired into `aerosynthx run --use-llm`~~ —
+  **shipped in Phase 8 (v1.1.0)**.
 - **P3** Executing OpenFOAM solvers (requires `simpleFoam` /
   `pisoFoam` availability and meshing; for now we only generate the
   case directory).
@@ -62,4 +61,12 @@ The highest-leverage P1 item is **LLM provider adapters with an opt-in
 3. Pairs naturally with API auth (next), since LLM calls are the
    first place we genuinely need secret-management discipline.
 
-Phase 8 plan will live at `docs/phases/PHASE_8.md`.
+**Status: shipped in Phase 8 (v1.1.0).** See
+[docs/phases/PHASE_8.md](phases/PHASE_8.md).
+
+## Next candidate
+
+With LLM parsing landed, the next highest-value P1 item is **API
+authentication / API keys** (Phase 6 + Phase 7 carry-over), since the
+`--use-llm` server path now handles provider secrets and benefits from
+access control.

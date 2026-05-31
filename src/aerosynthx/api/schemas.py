@@ -13,6 +13,10 @@ class RunRequest(BaseModel):
         default=True,
         description="Reuse a previously-completed run with the same intent.",
     )
+    use_llm: bool = Field(
+        default=False,
+        description="Parse with the configured LLM provider instead of the offline parser.",
+    )
 
 
 class RunSummary(BaseModel):
