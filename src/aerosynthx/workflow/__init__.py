@@ -35,6 +35,7 @@ from aerosynthx.workflow.pipeline import (
     load_run,
 )
 from aerosynthx.workflow.progress import ProgressEvent, ProgressSink
+from aerosynthx.workflow.retention import GarbageCollectResult, PruneResult
 from aerosynthx.workflow.stages import STAGE_ORDER, StageName
 
 __all__ = [
@@ -44,9 +45,11 @@ __all__ = [
     "CancellationToken",
     "ContentAddressedStore",
     "Deadline",
+    "GarbageCollectResult",
     "Pipeline",
     "ProgressEvent",
     "ProgressSink",
+    "PruneResult",
     "RunCancelledError",
     "RunControl",
     "RunLockRegistry",

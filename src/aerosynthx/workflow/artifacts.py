@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -136,6 +136,26 @@ class ContentAddressedStore:
                 blobs += 1
                 total += path.stat().st_size
         return StoreStats(blobs=blobs, bytes=total)
+
+    def iter_digests(self) -> Iterator[str]:
+        """Yield the digest of every blob currently on disk."""
+        if not self._root.is_dir():
+            return
+        for path in self._root.rglob("*"):
+            if path.is_file():
+                yield path.name
+
+    def delete_blob(self, digest: str) -> int:
+        """Remove the blob ``digest`` and return the bytes freed.
+
+        Idempotent: returns ``0`` if no such blob exists.
+        """
+        path = self.path_for(digest)
+        if not path.is_file():
+            return 0
+        size = path.stat().st_size
+        path.unlink()
+        return size
 
     def _write_blob(self, digest: str, payload: bytes) -> None:
         target = self.path_for(digest)

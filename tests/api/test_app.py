@@ -10,6 +10,7 @@ from aerosynthx import __version__
 from aerosynthx.api import create_app
 
 _GOOD = "NACA 2412 at 50 m/s, alpha 3 deg, chord 1.0 m."
+_OTHER = "NACA 2412 at 65 m/s, alpha 3 deg, chord 1.0 m."
 
 
 @pytest.fixture()
@@ -148,6 +149,36 @@ def test_store_stats(client: TestClient) -> None:
     after = client.get("/api/v1/store/stats").json()
     assert after["blobs"] > 0
     assert after["bytes"] > 0
+
+
+def test_prune_endpoint_trims_and_gcs(client: TestClient) -> None:
+    client.post("/api/v1/runs", json={"intent_text": _GOOD})
+    client.post("/api/v1/runs", json={"intent_text": _OTHER})
+    assert len(client.get("/api/v1/runs").json()) == 2
+    before = client.get("/api/v1/store/stats").json()["blobs"]
+
+    resp = client.post("/api/v1/maintenance/prune", json={"max_count": 1, "gc": True})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["pruned"] == 1
+    assert body["kept"] == 1
+    assert body["collected"] >= 1
+    assert body["freed_bytes"] > 0
+    assert len(client.get("/api/v1/runs").json()) == 1
+    assert client.get("/api/v1/store/stats").json()["blobs"] == before - body["collected"]
+
+
+def test_prune_endpoint_without_gc_leaves_blobs(client: TestClient) -> None:
+    client.post("/api/v1/runs", json={"intent_text": _GOOD})
+    before = client.get("/api/v1/store/stats").json()["blobs"]
+
+    body = client.post("/api/v1/maintenance/prune", json={"max_count": 0}).json()
+
+    assert body["pruned"] == 1
+    assert body["collected"] == 0
+    assert body["freed_bytes"] == 0
+    assert client.get("/api/v1/store/stats").json()["blobs"] == before
 
 
 def test_list_files_404_unknown_run(client: TestClient) -> None:
@@ -337,6 +368,19 @@ def test_scoped_keys_enforce_rbac(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         # Store stats also requires the read scope.
         assert c.get("/api/v1/store/stats", headers={"X-API-Key": "reader"}).status_code == 200
         assert c.get("/api/v1/store/stats", headers={"X-API-Key": "runner"}).status_code == 403
+        # Pruning requires the run scope.
+        assert (
+            c.post(
+                "/api/v1/maintenance/prune", json={}, headers={"X-API-Key": "reader"}
+            ).status_code
+            == 403
+        )
+        assert (
+            c.post(
+                "/api/v1/maintenance/prune", json={}, headers={"X-API-Key": "runner"}
+            ).status_code
+            == 200
+        )
 
 
 def test_rate_limit_returns_429(tmp_path: Path) -> None:

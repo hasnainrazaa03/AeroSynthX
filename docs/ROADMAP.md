@@ -1,6 +1,6 @@
 # AeroSynthX — Roadmap
 
-Status: Living document (current release `v1.2.0`).
+Status: Living document (current release `v1.12.0`).
 This roadmap defines phases, milestones, acceptance criteria, and the
 dependencies between them. It is the source of truth for sequencing.
 For the post-v1.2.0 feature backlog, see
@@ -49,7 +49,8 @@ release, (d) an updated `CHANGELOG.md`.
 | 16 | SSE streaming of run stage timeline (`/runs/{id}/events`) | Shipped (`v1.9.0`) |
 | 17 | Live pipeline progress events (`on_event`, `run --progress`) | Shipped (`v1.10.0`) |
 | 18 | Content-addressed artifact store (de-dup case files) | Shipped (`v1.11.0`) |
-| 18+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
+| 19 | Automatic retention & cleanup (prune runs + blob GC) | Shipped (`v1.12.0`) |
+| 19+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
 
 Each phase has a dedicated checklist file under `docs/phases/`.
 
@@ -330,7 +331,8 @@ them to a `docs/phases/PHASE_N.md` when picked up.
   remains future work).
 - [x] **P1** Run cancellation + timeout enforcement (Phase 13, `v1.6.0`).
 - [x] **P2** Run deletion + artifact retention / cleanup policy (Phase 14,
-  `v1.7.0`; basic per-run deletion — automatic retention policies remain).
+  `v1.7.0`, basic per-run deletion; Phase 19, `v1.12.0`, automatic
+  age/count pruning + unreferenced-blob garbage collection).
 - [x] **P2** Content-addressed artifact store de-duplicating case files
   across runs (Phase 18, `v1.11.0`; shared SHA-256 blob store under
   `<out_root>/blobs` with a `GET /store/stats` endpoint — relinking run
@@ -372,11 +374,11 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 
 ### Suggested next phase
 
-**Phase 18 — content-addressed artifact store** shipped in `v1.11.0`,
-archiving every case file once into a shared SHA-256 blob store under
-`<out_root>/blobs` and exposing `GET /api/v1/store/stats`. The strongest
-remaining candidates are **automatic retention / cleanup policies** (prune
-old runs and unreferenced blobs by age or count) and **relinking run
-directories to blobs** (serve files straight from the store via
-hard-links/symlinks so on-disk run trees shrink), both under *Workflow &
-data*.
+**Phase 19 — automatic retention & cleanup** shipped in `v1.12.0`:
+`Pipeline.prune_runs` deletes runs by age and/or count, `collect_garbage`
+reclaims unreferenced store blobs, exposed via `aerosynthx prune` and
+`POST /api/v1/maintenance/prune`. The strongest remaining candidates are
+**relinking run directories to blobs** (serve files straight from the store
+via hard-links/symlinks so on-disk run trees shrink, under *Workflow &
+data*) and **run list pagination, filtering, and full-text search** (under
+*API & UI*).

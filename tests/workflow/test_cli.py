@@ -9,6 +9,7 @@ from aerosynthx.workflow.cli import main
 from aerosynthx.workflow.errors import RunNotFoundError
 
 _GOOD = "NACA 2412 at 50 m/s, alpha 3 deg, chord 1.0 m."
+_OTHER = "NACA 2412 at 65 m/s, alpha 3 deg, chord 1.0 m."
 
 
 def _capture(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:
@@ -69,6 +70,33 @@ def test_delete_missing_run_raises(tmp_path: Path) -> None:
     assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
     with pytest.raises(RunNotFoundError):
         main(["delete", "ffffffffffffffff", "--out", str(tmp_path)])
+
+
+def test_prune_subcommand_trims_and_gcs(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
+    capsys.readouterr()
+    assert main(["run", "--intent", _OTHER, "--out", str(tmp_path)]) == 0
+    capsys.readouterr()
+
+    rc = main(["prune", "--out", str(tmp_path), "--max-count", "1", "--gc"])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "pruned 1 run(s); 1 kept" in out
+    assert "collected" in out
+    assert "bytes freed" in out
+
+
+def test_prune_subcommand_without_gc(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
+    capsys.readouterr()
+
+    rc = main(["prune", "--out", str(tmp_path), "--max-count", "0"])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "pruned 1 run(s); 0 kept" in out
+    assert "collected" not in out
 
 
 def test_run_failing_intent_returns_nonzero(

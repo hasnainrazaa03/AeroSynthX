@@ -22,7 +22,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from aerosynthx import __version__
 from aerosynthx.api.ratelimit import RateLimitMiddleware, RateLimitSettings
-from aerosynthx.api.schemas import RunRequest, RunSummary, VersionInfo
+from aerosynthx.api.schemas import PruneRequest, RunRequest, RunSummary, VersionInfo
 from aerosynthx.api.security import ApiKeyStore, Scope, make_api_key_dependency
 from aerosynthx.api.sse import run_event_stream
 from aerosynthx.intent import LLMClient
@@ -246,6 +246,22 @@ def create_app(
     def store_stats() -> dict[str, int]:
         stats = pipeline.artifact_store.stats()
         return {"blobs": stats.blobs, "bytes": stats.bytes}
+
+    @app.post("/api/v1/maintenance/prune", tags=["store"], dependencies=[auth_run])
+    def prune_runs(body: PruneRequest) -> dict[str, int]:
+        result = pipeline.prune_runs(max_age_days=body.max_age_days, max_count=body.max_count)
+        collected = 0
+        freed = 0
+        if body.gc:
+            gc = pipeline.collect_garbage()
+            collected = gc.collected
+            freed = gc.freed_bytes
+        return {
+            "pruned": result.count,
+            "kept": result.kept,
+            "collected": collected,
+            "freed_bytes": freed,
+        }
 
     @app.get("/api/v1/runs/{run_id}/files", tags=["runs"], dependencies=[auth_read])
     def list_run_files(run_id: str) -> dict[str, list[str]]:

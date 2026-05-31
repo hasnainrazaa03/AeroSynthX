@@ -13,6 +13,28 @@ policy.
 ### Added
 - (nothing yet)
 
+## [1.12.0] - 2026-05-31
+
+### Added
+- Phase 19: automatic retention & cleanup policy, with zero new runtime
+  dependencies.
+  - New `aerosynthx.workflow.retention` module: `PruneResult` (deleted run
+    ids + kept count, with a `count` property) and `GarbageCollectResult`
+    (collected blobs, freed bytes, kept blobs) describe a retention pass.
+  - `Pipeline.prune_runs(max_age_days=, max_count=, now=)` deletes runs
+    older than a cutoff and/or outside the newest N (the two bounds union),
+    reusing `delete_run`. `Pipeline.collect_garbage()` removes store blobs
+    no surviving run's manifest references and reports the bytes reclaimed.
+  - `ContentAddressedStore` gains `iter_digests()` and an idempotent
+    `delete_blob(digest) -> int` (bytes freed) to support garbage
+    collection.
+  - New `aerosynthx prune --out DIR [--max-age-days D] [--max-count N]
+    [--gc]` CLI subcommand and `POST /api/v1/maintenance/prune` endpoint
+    (requires the `run` scope) returning `{pruned, kept, collected,
+    freed_bytes}`.
+  - New `aerosynthx_runs_pruned_total` and `aerosynthx_blobs_collected_total`
+    counters make retention activity observable in Prometheus.
+
 ## [1.11.0] - 2026-05-31
 
 ### Added
@@ -416,7 +438,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.12.0...HEAD
+[1.12.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.8.0...v1.9.0

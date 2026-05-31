@@ -16,9 +16,11 @@ import shutil
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Final, Literal
+
+from sqlalchemy import select
 
 from aerosynthx.intent import (
     DesignIntent,
@@ -47,6 +49,12 @@ from aerosynthx.workflow.db import RunRow, StageRow, open_session
 from aerosynthx.workflow.errors import StageError
 from aerosynthx.workflow.locking import DEFAULT_RUN_LOCKS, RunLockRegistry
 from aerosynthx.workflow.progress import ProgressEvent, ProgressSink
+from aerosynthx.workflow.retention import (
+    _BLOBS_COLLECTED,
+    _RUNS_PRUNED,
+    GarbageCollectResult,
+    PruneResult,
+)
 from aerosynthx.workflow.stages import STAGE_ORDER, StageName
 
 _LOG = logging.getLogger("aerosynthx.workflow")
@@ -246,6 +254,100 @@ class Pipeline:
         if run_dir.exists():
             shutil.rmtree(run_dir)
         return removed
+
+    def prune_runs(
+        self,
+        *,
+        max_age_days: float | None = None,
+        max_count: int | None = None,
+        now: datetime | None = None,
+    ) -> PruneResult:
+        """Delete runs that violate the retention policy.
+
+        A run is removed when it is older than ``now - max_age_days`` *or*
+        falls outside the newest ``max_count`` runs (the two predicates
+        union). Runs are considered newest-first by ``created_at_iso``.
+        Selected runs are removed via :meth:`delete_run`. Passing neither
+        bound deletes nothing.
+
+        Args:
+            max_age_days: Maximum age, in days, a run may reach before it is
+                pruned. ``None`` disables the age bound.
+            max_count: Maximum number of (newest) runs to retain. ``None``
+                disables the count bound.
+            now: Reference time for the age bound; defaults to the current
+                UTC time. Injectable for deterministic tests.
+
+        Returns:
+            A :class:`PruneResult` listing the deleted run ids (newest-first)
+            and the number of runs kept.
+        """
+        reference = now if now is not None else datetime.now(tz=UTC)
+        rows = self._run_ids_newest_first()
+        cutoff_iso: str | None = None
+        if max_age_days is not None:
+            cutoff_iso = (reference - timedelta(days=max_age_days)).isoformat()
+        doomed: list[str] = []
+        for index, (run_id, created_at_iso) in enumerate(rows):
+            too_old = cutoff_iso is not None and created_at_iso < cutoff_iso
+            over_count = max_count is not None and index >= max_count
+            if too_old or over_count:
+                doomed.append(run_id)
+        for run_id in doomed:
+            self.delete_run(run_id)
+            _RUNS_PRUNED.inc()
+        return PruneResult(deleted=tuple(doomed), kept=len(rows) - len(doomed))
+
+    def collect_garbage(self) -> GarbageCollectResult:
+        """Remove store blobs no longer referenced by any surviving run.
+
+        The set of live digests is rebuilt from every run's
+        ``aerosynthx_manifest.json`` ``files`` map; any blob whose digest is
+        absent from that set is deleted and its bytes reclaimed. Idempotent.
+
+        Returns:
+            A :class:`GarbageCollectResult` with the number of blobs
+            collected, bytes freed, and live blobs retained.
+        """
+        referenced = self._referenced_digests()
+        collected = 0
+        freed = 0
+        for digest in list(self._artifact_store.iter_digests()):
+            if digest in referenced:
+                continue
+            freed += self._artifact_store.delete_blob(digest)
+            collected += 1
+            _BLOBS_COLLECTED.inc()
+        return GarbageCollectResult(
+            collected=collected,
+            freed_bytes=freed,
+            kept=len(referenced),
+        )
+
+    def _run_ids_newest_first(self) -> list[tuple[str, str]]:
+        """Return ``(run_id, created_at_iso)`` pairs, newest first."""
+        if not self._db_path.exists():
+            return []
+        with open_session(self._db_path) as session:
+            stmt = select(RunRow).order_by(RunRow.created_at_iso.desc())
+            return [(r.id, r.created_at_iso) for r in session.execute(stmt).scalars().all()]
+
+    def _referenced_digests(self) -> set[str]:
+        """Collect every blob digest referenced by a surviving run."""
+        digests: set[str] = set()
+        if not self._db_path.exists():
+            return digests
+        with open_session(self._db_path) as session:
+            case_dirs = [r.case_dir for r in session.execute(select(RunRow)).scalars().all()]
+        for case_dir in case_dirs:
+            if case_dir is None:
+                continue
+            manifest_path = Path(case_dir) / "aerosynthx_manifest.json"
+            if not manifest_path.is_file():
+                continue
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            digests.update(data.get("files", {}).values())
+        return digests
 
     def _parse_intent(self, intent_text: str) -> ParseResult:
         """Parse ``intent_text``, preferring the LLM when configured.

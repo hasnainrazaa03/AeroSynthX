@@ -28,6 +28,25 @@ class RunRequest(BaseModel):
     )
 
 
+class PruneRequest(BaseModel):
+    """Body of ``POST /api/v1/maintenance/prune``."""
+
+    max_age_days: float | None = Field(
+        default=None,
+        gt=0,
+        description="Delete runs older than this many days.",
+    )
+    max_count: int | None = Field(
+        default=None,
+        ge=0,
+        description="Keep only this many newest runs; delete the rest.",
+    )
+    gc: bool = Field(
+        default=False,
+        description="After pruning, collect store blobs no surviving run references.",
+    )
+
+
 class RunSummary(BaseModel):
     """One-row digest returned by ``GET /api/v1/runs``."""
 
