@@ -112,6 +112,25 @@ def test_get_run_404(client: TestClient) -> None:
     assert r.status_code == 404
 
 
+def test_stream_run_events(client: TestClient) -> None:
+    created = client.post("/api/v1/runs", json={"intent_text": _GOOD}).json()
+    r = client.get(f"/api/v1/runs/{created['run_id']}/events")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/event-stream")
+    assert r.headers["cache-control"] == "no-cache"
+    assert r.headers["x-accel-buffering"] == "no"
+    body = r.text
+    assert "event: stage" in body
+    assert body.rstrip().endswith("}")
+    assert "event: complete" in body
+    assert created["run_id"] in body
+
+
+def test_stream_run_events_404(client: TestClient) -> None:
+    r = client.get("/api/v1/runs/0000000000000000/events")
+    assert r.status_code == 404
+
+
 def test_list_files(client: TestClient) -> None:
     created = client.post("/api/v1/runs", json={"intent_text": _GOOD}).json()
     r = client.get(f"/api/v1/runs/{created['run_id']}/files")
@@ -296,6 +315,14 @@ def test_scoped_keys_enforce_rbac(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         )
         assert created.status_code == 201
         assert c.get("/api/v1/runs", headers={"X-API-Key": "runner"}).status_code == 403
+        # The events stream requires the read scope.
+        rid = created.json()["run_id"]
+        assert (
+            c.get(f"/api/v1/runs/{rid}/events", headers={"X-API-Key": "reader"}).status_code == 200
+        )
+        assert (
+            c.get(f"/api/v1/runs/{rid}/events", headers={"X-API-Key": "runner"}).status_code == 403
+        )
 
 
 def test_rate_limit_returns_429(tmp_path: Path) -> None:

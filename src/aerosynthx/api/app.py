@@ -9,7 +9,13 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    PlainTextResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -18,6 +24,7 @@ from aerosynthx import __version__
 from aerosynthx.api.ratelimit import RateLimitMiddleware, RateLimitSettings
 from aerosynthx.api.schemas import RunRequest, RunSummary, VersionInfo
 from aerosynthx.api.security import ApiKeyStore, Scope, make_api_key_dependency
+from aerosynthx.api.sse import run_event_stream
 from aerosynthx.intent import LLMClient
 from aerosynthx.observability import METRICS, bind_correlation_id, render_prometheus
 from aerosynthx.workflow.db import RunRow, open_session
@@ -220,6 +227,20 @@ def create_app(
                 detail=f"no run with id {run_id!r}",
             )
         return result.to_json()
+
+    @app.get("/api/v1/runs/{run_id}/events", tags=["runs"], dependencies=[auth_read])
+    def stream_run_events(run_id: str) -> StreamingResponse:
+        result = load_run(pipeline.db_path, run_id)
+        if result is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"no run with id {run_id!r}",
+            )
+        return StreamingResponse(
+            run_event_stream(result),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @app.get("/api/v1/runs/{run_id}/files", tags=["runs"], dependencies=[auth_read])
     def list_run_files(run_id: str) -> dict[str, list[str]]:

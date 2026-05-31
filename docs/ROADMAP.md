@@ -46,7 +46,8 @@ release, (d) an updated `CHANGELOG.md`.
 | 13 | Run cancellation + timeout enforcement | Shipped (`v1.6.0`) |
 | 14 | Run deletion + retention (`DELETE /runs/{id}`) | Shipped (`v1.7.0`) |
 | 15 | Concurrency: per-run locking for safe parallel runs | Shipped (`v1.8.0`) |
-| 15+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
+| 16 | SSE streaming of run stage timeline (`/runs/{id}/events`) | Shipped (`v1.9.0`) |
+| 16+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
 
 Each phase has a dedicated checklist file under `docs/phases/`.
 
@@ -336,7 +337,9 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 
 ### API & UI
 
-- [ ] **P1** SSE / WebSocket streaming of stage progress.
+- [x] **P1** SSE / WebSocket streaming of stage progress (Phase 16,
+  `v1.9.0`; SSE replay of the persisted stage timeline — live
+  mid-execution progress events remain future work).
 - [ ] **P2** Run list pagination, filtering, and full-text search.
 - [x] **P2** `DELETE /api/v1/runs/{id}` endpoint (Phase 14, `v1.7.0`).
 - [ ] **P2** Charts of physics results + downloadable report in the UI.
@@ -362,11 +365,12 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 
 ### Suggested next phase
 
-**Phase 15 — concurrency (per-run locking)** shipped in `v1.8.0`, making
-the synchronous pipeline safe under concurrent invocation: same-intent
-runs serialize and resume, distinct runs proceed in parallel. The
-strongest remaining **P1** candidate is **SSE/WebSocket streaming of stage
-progress** under *API & UI*, letting clients observe a run's stage
-timeline live instead of polling. A natural complement is **structured
-per-run progress events** emitted from the pipeline that the streaming
-endpoint can relay.
+**Phase 16 — SSE streaming of the run stage timeline** shipped in `v1.9.0`,
+giving clients a `text/event-stream` transport (`GET /runs/{id}/events`)
+that replays each stage event followed by a terminal `complete` event.
+The strongest remaining candidates are **live mid-execution progress
+events** (emit structured events *during* `Pipeline.run` so the SSE
+endpoint can relay them in real time) under *API & UI*, and a
+**content-addressed artifact store** under *Workflow & data*. Live progress
+is the natural follow-on, building directly on the SSE transport just
+shipped.

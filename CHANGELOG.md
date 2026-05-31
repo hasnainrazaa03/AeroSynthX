@@ -13,6 +13,19 @@ policy.
 ### Added
 - (nothing yet)
 
+## [1.9.0] - 2026-05-31
+
+### Added
+- Phase 16: Server-Sent Events streaming of a run's stage timeline, with
+  zero new runtime dependencies.
+  - New `GET /api/v1/runs/{run_id}/events` endpoint (requires the `read`
+    scope) returning `text/event-stream`: one `stage` event per persisted
+    stage followed by a terminal `complete` event, guarded with
+    `Cache-Control: no-cache` and `X-Accel-Buffering: no` so proxies do
+    not buffer the stream. Unknown ids return `404`.
+  - New `aerosynthx.api.sse` module with the pure `sse_message` framing
+    helper and `run_event_stream` generator.
+
 ## [1.8.0] - 2026-05-31
 
 ### Added
@@ -365,7 +378,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.5.0...v1.6.0
