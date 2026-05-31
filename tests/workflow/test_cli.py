@@ -24,6 +24,19 @@ def test_run_subcommand_succeeds(tmp_path: Path, capsys: pytest.CaptureFixture[s
     assert payload["run_id"]
 
 
+def test_run_progress_writes_to_stderr(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    rc = main(["run", "--intent", _GOOD, "--out", str(tmp_path), "--progress"])
+    assert rc == 0
+    captured = capsys.readouterr()
+    # Run JSON still goes to stdout.
+    assert json.loads(captured.out.strip())["status"] == "completed"
+    # Progress lines go to stderr and include stage + terminal events.
+    err = captured.err
+    assert "progress[0] stage_started" in err
+    assert "stage_finished" in err
+    assert "run_finished completed" in err
+
+
 def test_run_then_show(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
     payload = _capture(capsys)

@@ -9,6 +9,7 @@ storage. The pipeline is deterministic and offline by default: it uses
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import logging
 import shutil
@@ -44,6 +45,7 @@ from aerosynthx.workflow.cancellation import CancellationToken, RunControl
 from aerosynthx.workflow.db import RunRow, StageRow, open_session
 from aerosynthx.workflow.errors import StageError
 from aerosynthx.workflow.locking import DEFAULT_RUN_LOCKS, RunLockRegistry
+from aerosynthx.workflow.progress import ProgressEvent, ProgressSink
 from aerosynthx.workflow.stages import STAGE_ORDER, StageName
 
 _LOG = logging.getLogger("aerosynthx.workflow")
@@ -73,6 +75,41 @@ _StageStatus = Literal["ok", "skipped", "failed", "pending"]
 
 _DEFAULT_DB_NAME: Final[str] = "aerosynthx.db"
 _DEFAULT_SOLVER_TIMEOUT: Final[float] = 600.0
+
+
+# An internal emit callback: (kind, stage, status, duration_ms) -> None.
+_Emit = Callable[[str, str | None, str | None, int | None], None]
+
+
+def _noop_emit(kind: str, stage: str | None, status: str | None, duration_ms: int | None) -> None:
+    """Emit callback used when no progress sink is configured."""
+    return
+
+
+def _make_emitter(run_id: str, sink: ProgressSink | None) -> _Emit:
+    """Build a per-run emit callback wrapping ``sink`` with a sequence.
+
+    Returns :func:`_noop_emit` when ``sink`` is ``None`` so the hot path is
+    zero-cost. The returned closure owns its own sequence counter, so it is
+    safe to create one per concurrent run.
+    """
+    if sink is None:
+        return _noop_emit
+    counter = itertools.count()
+
+    def emit(kind: str, stage: str | None, status: str | None, duration_ms: int | None) -> None:
+        sink(
+            ProgressEvent(
+                sequence=next(counter),
+                kind=kind,  # type: ignore[arg-type]
+                run_id=run_id,
+                stage=stage,
+                status=status,
+                duration_ms=duration_ms,
+            )
+        )
+
+    return emit
 
 
 def _normalise_text(text: str) -> str:
@@ -238,6 +275,7 @@ class Pipeline:
         execute: bool = False,
         timeout: float | None = None,
         cancel_token: CancellationToken | None = None,
+        on_event: ProgressSink | None = None,
     ) -> RunResult:
         """Execute every pipeline stage for ``intent_text``.
 
@@ -255,6 +293,10 @@ class Pipeline:
             cancel_token: Optional :class:`CancellationToken`; tripping it
                 aborts the run at the next stage boundary with a
                 ``workflow.run.cancelled`` stage error.
+            on_event: Optional :data:`ProgressSink` notified at each stage
+                boundary (``stage_started`` / ``stage_finished``) and once
+                when the run finishes (``run_finished``). Ignored for runs
+                served from the resume cache.
 
         Returns:
             A :class:`RunResult`. Stage-level failures are captured in
@@ -287,7 +329,9 @@ class Pipeline:
                     _LOG.info("resume.hit run_id=%s (post-lock)", run_id)
                     return cached
             with bind_correlation_id(run_id):
-                return self._run_uncached(run_id, intent_text, execute=execute, control=control)
+                return self._run_uncached(
+                    run_id, intent_text, execute=execute, control=control, on_event=on_event
+                )
 
     def _run_uncached(
         self,
@@ -296,6 +340,21 @@ class Pipeline:
         *,
         execute: bool = False,
         control: RunControl,
+        on_event: ProgressSink | None = None,
+    ) -> RunResult:
+        emit = _make_emitter(run_id, on_event)
+        result = self._execute_run(run_id, intent_text, execute=execute, control=control, emit=emit)
+        emit("run_finished", None, result.status, None)
+        return result
+
+    def _execute_run(
+        self,
+        run_id: str,
+        intent_text: str,
+        *,
+        execute: bool = False,
+        control: RunControl,
+        emit: _Emit,
     ) -> RunResult:
         run_dir = self._out_root / "runs" / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -308,7 +367,7 @@ class Pipeline:
         solve_result: SolveResult | None = None
 
         # --- parse -------------------------------------------------
-        with _timed(StageName.PARSE) as record:
+        with _timed(StageName.PARSE, emit) as record:
             control.check(StageName.PARSE.value)
             try:
                 parse_result = self._parse_intent(intent_text)
@@ -321,7 +380,7 @@ class Pipeline:
             return self._finalise(run_id, intent_text, "failed", stages, None, None, None, None)
 
         # --- compute -----------------------------------------------
-        with _timed(StageName.COMPUTE) as record:
+        with _timed(StageName.COMPUTE, emit) as record:
             control.check(StageName.COMPUTE.value)
             try:
                 assert intent is not None
@@ -336,7 +395,7 @@ class Pipeline:
         # --- geometry ---------------------------------------------
         # build_case re-generates geometry; we still record a stage so
         # the timeline is complete. No standalone artifact is written.
-        with _timed(StageName.GEOMETRY) as record:
+        with _timed(StageName.GEOMETRY, emit) as record:
             control.check(StageName.GEOMETRY.value)
             assert intent is not None
             record["digest"] = hashlib.sha256(
@@ -346,7 +405,7 @@ class Pipeline:
 
         # --- case --------------------------------------------------
         case_dir = run_dir / "case"
-        with _timed(StageName.CASE) as record:
+        with _timed(StageName.CASE, emit) as record:
             control.check(StageName.CASE.value)
             try:
                 assert intent is not None
@@ -361,7 +420,7 @@ class Pipeline:
         # --- solve (opt-in) ---------------------------------------
         if execute:
             assert case_dir is not None
-            solve_result = self._solve_stage(case_dir, run_dir, stages, control)
+            solve_result = self._solve_stage(case_dir, run_dir, stages, control, emit)
             if stages[-1].status == "failed":
                 return self._finalise(
                     run_id, intent_text, "failed", stages, intent, flow, case_dir, None
@@ -369,7 +428,7 @@ class Pipeline:
 
         # --- persist -----------------------------------------------
         manifest_digest = _sha256_of_json(manifest.files) if manifest is not None else None
-        with _timed(StageName.PERSIST) as record:
+        with _timed(StageName.PERSIST, emit) as record:
             self._persist(
                 run_id=run_id,
                 intent_text=intent_text,
@@ -414,7 +473,12 @@ class Pipeline:
         return result
 
     def _solve_stage(
-        self, case_dir: Path, run_dir: Path, stages: list[StageResult], control: RunControl
+        self,
+        case_dir: Path,
+        run_dir: Path,
+        stages: list[StageResult],
+        control: RunControl,
+        emit: _Emit = _noop_emit,
     ) -> SolveResult | None:
         """Run the opt-in solve stage, appending its :class:`StageResult`.
 
@@ -424,7 +488,7 @@ class Pipeline:
         timeout is capped by the run's remaining time budget.
         """
         solve_result: SolveResult | None = None
-        with _timed(StageName.SOLVE) as record:
+        with _timed(StageName.SOLVE, emit) as record:
             control.check(StageName.SOLVE.value)
             if not openfoam_available():
                 record["skipped"] = True
@@ -567,8 +631,9 @@ class Pipeline:
 class _StageRecorder:
     """Context-manager helper that builds a :class:`StageResult`."""
 
-    def __init__(self, stage: StageName) -> None:
+    def __init__(self, stage: StageName, emit: _Emit = _noop_emit) -> None:
         self._stage = stage
+        self._emit = emit
         self._start = 0.0
         self._record: dict[str, Any] = {
             "digest": None,
@@ -579,6 +644,7 @@ class _StageRecorder:
 
     def __enter__(self) -> dict[str, Any]:
         self._start = time.perf_counter()
+        self._emit("stage_started", self._stage.value, None, None)
         return self._record
 
     def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
@@ -610,11 +676,12 @@ class _StageRecorder:
                 "duration_ms": elapsed_ms,
             },
         )
+        self._emit("stage_finished", self._stage.value, status, elapsed_ms)
         return True
 
 
-def _timed(stage: StageName) -> _StageRecorder:
-    return _StageRecorder(stage)
+def _timed(stage: StageName, emit: _Emit = _noop_emit) -> _StageRecorder:
+    return _StageRecorder(stage, emit)
 
 
 # ----------------------------------------------------------------------

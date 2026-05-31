@@ -11,6 +11,7 @@ from pathlib import Path
 
 from aerosynthx.workflow.errors import RunNotFoundError, StageError
 from aerosynthx.workflow.pipeline import Pipeline, RunResult, load_run
+from aerosynthx.workflow.progress import ProgressEvent
 
 _LOG = logging.getLogger("aerosynthx.cli")
 
@@ -61,6 +62,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Wall-clock budget in seconds; the run fails fast once exceeded.",
     )
+    run_p.add_argument(
+        "--progress",
+        action="store_true",
+        help="Stream stage progress events to stderr as the run executes.",
+    )
 
     show_p = sub.add_parser("show", help="Print a persisted run as JSON to stdout.")
     show_p.add_argument("run_id", help="Run id returned by `run`.")
@@ -100,6 +106,17 @@ def _print_result(result: RunResult) -> None:
     sys.stdout.write(json.dumps(result.to_json(), indent=2, sort_keys=True) + "\n")
 
 
+def _progress_to_stderr(event: ProgressEvent) -> None:
+    parts = [f"progress[{event.sequence}] {event.kind}"]
+    if event.stage is not None:
+        parts.append(event.stage)
+    if event.status is not None:
+        parts.append(event.status)
+    if event.duration_ms is not None:
+        parts.append(f"{event.duration_ms}ms")
+    sys.stderr.write(" ".join(parts) + "\n")
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     llm_client = None
     if args.use_llm:
@@ -117,6 +134,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             resume=not args.no_resume,
             execute=args.execute,
             timeout=args.timeout,
+            on_event=_progress_to_stderr if args.progress else None,
         )
     except StageError as exc:
         _LOG.error("stage %s failed: %s", exc.stage, exc)

@@ -13,6 +13,23 @@ policy.
 ### Added
 - (nothing yet)
 
+## [1.10.0] - 2026-05-31
+
+### Added
+- Phase 17: structured progress events emitted live during a pipeline run,
+  with zero new runtime dependencies.
+  - New `aerosynthx.workflow.progress` module: a frozen `ProgressEvent`
+    dataclass (`sequence`, `kind`, `run_id`, `stage`, `status`,
+    `duration_ms`) and the `ProgressSink` callback type.
+  - `Pipeline.run` accepts an optional `on_event` sink that receives a
+    `stage_started` then `stage_finished` event at each stage boundary and
+    a single terminal `run_finished` event, with a monotonic per-run
+    `sequence`. Emission is per-run (closure-owned), so it is safe under
+    concurrent runs, and a no-op fast path keeps the cost zero when no sink
+    is supplied. Runs served from the resume cache emit no events.
+  - `aerosynthx run --progress` streams these events to stderr while the
+    run's JSON result still goes to stdout.
+
 ## [1.9.0] - 2026-05-31
 
 ### Added
@@ -378,7 +395,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.6.0...v1.7.0
