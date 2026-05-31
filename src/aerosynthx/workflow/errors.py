@@ -25,3 +25,15 @@ class RunNotFoundError(WorkflowError):
     """Raised when a requested run id has no record in the run store."""
 
     code = "workflow.run.not_found"
+
+
+class RunTimeoutError(StageError):
+    """Raised when a run exceeds its wall-clock time budget."""
+
+    code = "workflow.run.timeout"
+
+
+class RunCancelledError(StageError):
+    """Raised when a run is cancelled cooperatively before completing."""
+
+    code = "workflow.run.cancelled"

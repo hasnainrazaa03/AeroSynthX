@@ -13,6 +13,27 @@ policy.
 ### Added
 - (nothing yet)
 
+## [1.6.0] - 2026-05-31
+
+### Added
+- Phase 13: run cancellation + timeout enforcement, with zero new runtime
+  dependencies. The synchronous pipeline now enforces a wall-clock budget
+  and a cooperative cancellation hook checked at every stage boundary.
+  - New `aerosynthx.workflow.cancellation` module: `CancellationToken`
+    (thread-safe one-shot flag), `Deadline` (monotonic budget built from
+    an injectable clock), and `RunControl` (combined deadline + token with
+    `check()` and a budget-capped `solver_timeout()`).
+  - New `RunTimeoutError` (`code="workflow.run.timeout"`) and
+    `RunCancelledError` (`code="workflow.run.cancelled"`); on either, the
+    in-flight stage fails fast and the run finalises as `failed`.
+  - `Pipeline` accepts an injectable `clock`; `Pipeline.run` gains
+    `timeout` and `cancel_token` parameters. The opt-in solver stage caps
+    its per-command subprocess timeout to the run's remaining budget.
+  - `POST /api/v1/runs` accepts an optional `timeout_seconds` (> 0); the
+    CLI `run` command gains `--timeout SECONDS`.
+  - New `aerosynthx_runs_interrupted_total{reason}` counter
+    (`reason ∈ {timeout, cancelled}`).
+
 ## [1.5.0] - 2026-05-31
 
 ### Added
@@ -315,7 +336,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.2.0...v1.3.0

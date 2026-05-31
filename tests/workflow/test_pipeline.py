@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from aerosynthx.intent import DesignIntent
+from aerosynthx.workflow.cancellation import CancellationToken
 from aerosynthx.workflow.db import RunRow, open_session
 from aerosynthx.workflow.errors import StageError
 from aerosynthx.workflow.pipeline import Pipeline, load_run
@@ -319,3 +320,86 @@ def test_run_execute_bypasses_resume(tmp_path: Path, monkeypatch: pytest.MonkeyP
     # execute=True must re-run and add the solve stage despite the cache.
     result = pipe.run(_GOOD_INTENT, execute=True)
     assert len(result.stages) == 6
+
+
+# --- Phase 13: timeout + cancellation ---------------------------------
+
+
+class _FakeClock:
+    """A deterministic monotonic clock driven by a value queue."""
+
+    def __init__(self, *values: float) -> None:
+        self._values = list(values)
+        self._last = values[-1] if values else 0.0
+
+    def __call__(self) -> float:
+        if self._values:
+            self._last = self._values.pop(0)
+        return self._last
+
+
+def test_run_times_out_at_first_stage(tmp_path: Path) -> None:
+    # clock: start() -> 0.0 (deadline = 1.0); parse check -> 100.0 (expired).
+    pipe = Pipeline(out_root=tmp_path, clock=_FakeClock(0.0, 100.0))
+    result = pipe.run(_GOOD_INTENT, timeout=1.0)
+
+    assert result.status == "failed"
+    parse = next(s for s in result.stages if s.name == "parse")
+    assert parse.status == "failed"
+    assert parse.error is not None and "RunTimeoutError" in parse.error
+    later = [s for s in result.stages if s.name in {"compute", "case", "persist"}]
+    assert all(s.status == "pending" for s in later)
+
+
+def test_run_times_out_at_later_stage(tmp_path: Path) -> None:
+    # start -> 0.0, parse check -> 0.0 (live), compute check -> 100.0 (expired).
+    pipe = Pipeline(out_root=tmp_path, clock=_FakeClock(0.0, 0.0, 100.0))
+    result = pipe.run(_GOOD_INTENT, timeout=1.0)
+
+    assert result.status == "failed"
+    assert next(s for s in result.stages if s.name == "parse").status == "ok"
+    compute = next(s for s in result.stages if s.name == "compute")
+    assert compute.status == "failed"
+    assert compute.error is not None and "RunTimeoutError" in compute.error
+
+
+def test_run_cancelled_fails_at_parse(tmp_path: Path) -> None:
+    token = CancellationToken()
+    token.cancel()
+    pipe = Pipeline(out_root=tmp_path)
+    result = pipe.run(_GOOD_INTENT, cancel_token=token)
+
+    assert result.status == "failed"
+    parse = next(s for s in result.stages if s.name == "parse")
+    assert parse.status == "failed"
+    assert parse.error is not None and "RunCancelledError" in parse.error
+
+
+def test_run_completes_with_generous_timeout(tmp_path: Path) -> None:
+    # Constant-zero clock never advances past the deadline.
+    pipe = Pipeline(out_root=tmp_path, clock=_FakeClock(0.0))
+    result = pipe.run(_GOOD_INTENT, timeout=60.0)
+    assert result.status == "completed"
+    assert all(s.status == "ok" for s in result.stages)
+
+
+def test_execute_caps_solver_timeout_to_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from collections.abc import Sequence
+
+    from aerosynthx.openfoam.runner import CommandResult
+    from aerosynthx.workflow import pipeline as pipe_mod
+
+    monkeypatch.setattr(pipe_mod, "openfoam_available", lambda: True)
+    seen: dict[str, float] = {}
+
+    def runner(command: Sequence[str], *, cwd: Path, timeout: float) -> CommandResult:
+        seen["timeout"] = timeout
+        return CommandResult(command=tuple(command), returncode=0, stdout="", stderr="")
+
+    pipe = Pipeline(out_root=tmp_path, command_runner=runner, clock=_FakeClock(0.0))
+    result = pipe.run(_GOOD_INTENT, execute=True, timeout=30.0)
+
+    assert result.status == "completed"
+    assert seen["timeout"] == 30.0

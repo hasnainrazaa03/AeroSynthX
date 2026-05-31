@@ -55,6 +55,17 @@ def test_create_run_empty_intent_returns_422(client: TestClient) -> None:
     assert r.status_code == 422
 
 
+def test_create_run_accepts_timeout_seconds(client: TestClient) -> None:
+    r = client.post("/api/v1/runs", json={"intent_text": _GOOD, "timeout_seconds": 60})
+    assert r.status_code == 201
+    assert r.json()["status"] == "completed"
+
+
+def test_create_run_rejects_non_positive_timeout(client: TestClient) -> None:
+    r = client.post("/api/v1/runs", json={"intent_text": _GOOD, "timeout_seconds": 0})
+    assert r.status_code == 422
+
+
 def test_create_run_whitespace_intent_returns_400(client: TestClient) -> None:
     r = client.post("/api/v1/runs", json={"intent_text": "   "})
     assert r.status_code == 400

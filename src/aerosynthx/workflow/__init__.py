@@ -12,9 +12,16 @@ Public API:
 
 from __future__ import annotations
 
+from aerosynthx.workflow.cancellation import CancellationToken, Deadline, RunControl
 from aerosynthx.workflow.cli import main
 from aerosynthx.workflow.db import RunRow, StageRow, init_db, open_session
-from aerosynthx.workflow.errors import RunNotFoundError, StageError, WorkflowError
+from aerosynthx.workflow.errors import (
+    RunCancelledError,
+    RunNotFoundError,
+    RunTimeoutError,
+    StageError,
+    WorkflowError,
+)
 from aerosynthx.workflow.pipeline import (
     Pipeline,
     RunResult,
@@ -25,10 +32,15 @@ from aerosynthx.workflow.stages import STAGE_ORDER, StageName
 
 __all__ = [
     "STAGE_ORDER",
+    "CancellationToken",
+    "Deadline",
     "Pipeline",
+    "RunCancelledError",
+    "RunControl",
     "RunNotFoundError",
     "RunResult",
     "RunRow",
+    "RunTimeoutError",
     "StageError",
     "StageName",
     "StageResult",

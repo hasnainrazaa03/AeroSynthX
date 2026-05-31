@@ -21,6 +21,11 @@ class RunRequest(BaseModel):
         default=False,
         description="Run the generated case through OpenFOAM when the toolchain is available.",
     )
+    timeout_seconds: float | None = Field(
+        default=None,
+        gt=0,
+        description="Optional wall-clock budget in seconds; the run fails fast once exceeded.",
+    )
 
 
 class RunSummary(BaseModel):

@@ -43,7 +43,8 @@ release, (d) an updated `CHANGELOG.md`.
 | 10 | OpenFOAM solver execution + result extraction | Shipped (`v1.3.0`) |
 | 11 | RBAC scopes + rate limiting + body-size limits | Shipped (`v1.4.0`) |
 | 12 | LLM retry with exponential backoff | Shipped (`v1.5.0`) |
-| 12+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
+| 13 | Run cancellation + timeout enforcement | Shipped (`v1.6.0`) |
+| 13+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
 
 Each phase has a dedicated checklist file under `docs/phases/`.
 
@@ -320,7 +321,7 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 ### Workflow & data
 
 - [ ] **P1** Concurrency: parallel runs + per-run locking in the store.
-- [ ] **P1** Run cancellation + timeout enforcement.
+- [x] **P1** Run cancellation + timeout enforcement (Phase 13, `v1.6.0`).
 - [ ] **P2** Run deletion + artifact retention / cleanup policy.
 - [ ] **P2** Postgres backend option (SQLite stays the default).
 - [ ] **P2** Alembic migrations for schema evolution.
@@ -356,9 +357,11 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 
 ### Suggested next phase
 
-**Phase 12 — LLM retry with exponential backoff** shipped in `v1.5.0`,
-hardening the external provider boundary. The strongest remaining **P1**
-candidates are in *Workflow & data*: **run cancellation + timeout
-enforcement** and **concurrency (parallel runs + per-run locking)** — both
-directly improve the robustness of long-running solver executions added in
-Phase 10. Run cancellation/timeout is the recommended next step.
+**Phase 13 — run cancellation + timeout enforcement** shipped in `v1.6.0`,
+giving every run a wall-clock budget and a cooperative cancellation hook.
+The strongest remaining **P1** candidates are **concurrency (parallel runs
++ per-run locking in the store)** under *Workflow & data* and **SSE/WebSocket
+streaming of stage progress** under *API & UI*. A natural, lower-risk next
+step is **run deletion + retention** — a `DELETE /api/v1/runs/{id}` endpoint
+plus store/artifact cleanup — which rounds out the run lifecycle before the
+larger concurrency work.

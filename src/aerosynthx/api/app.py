@@ -162,7 +162,12 @@ def create_app(
     def create_run(body: RunRequest) -> dict[str, Any]:
         active = llm_pipeline if body.use_llm else pipeline
         try:
-            result = active.run(body.intent_text, resume=body.resume, execute=body.execute)
+            result = active.run(
+                body.intent_text,
+                resume=body.resume,
+                execute=body.execute,
+                timeout=body.timeout_seconds,
+            )
         except StageError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

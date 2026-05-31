@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -38,6 +39,7 @@ from aerosynthx.openfoam import (
     openfoam_available,
     run_case,
 )
+from aerosynthx.workflow.cancellation import CancellationToken, RunControl
 from aerosynthx.workflow.db import RunRow, StageRow, open_session
 from aerosynthx.workflow.errors import StageError
 from aerosynthx.workflow.stages import STAGE_ORDER, StageName
@@ -68,6 +70,7 @@ _SOLVER_COUNTER = METRICS.counter(
 _StageStatus = Literal["ok", "skipped", "failed", "pending"]
 
 _DEFAULT_DB_NAME: Final[str] = "aerosynthx.db"
+_DEFAULT_SOLVER_TIMEOUT: Final[float] = 600.0
 
 
 def _normalise_text(text: str) -> str:
@@ -151,6 +154,7 @@ class Pipeline:
         db_path: Path | None = None,
         llm_client: LLMClient | None = None,
         command_runner: CommandRunner | None = None,
+        clock: Callable[[], float] | None = None,
     ) -> None:
         self._out_root = out_root
         self._db_path = db_path if db_path is not None else out_root / _DEFAULT_DB_NAME
@@ -158,6 +162,7 @@ class Pipeline:
         self._command_runner: CommandRunner = (
             command_runner if command_runner is not None else default_command_runner
         )
+        self._clock: Callable[[], float] = clock if clock is not None else time.monotonic
 
     @property
     def db_path(self) -> Path:
@@ -196,7 +201,15 @@ class Pipeline:
         _PARSE_COUNTER.inc(mode="llm", status="ok")
         return result
 
-    def run(self, intent_text: str, *, resume: bool = True, execute: bool = False) -> RunResult:
+    def run(
+        self,
+        intent_text: str,
+        *,
+        resume: bool = True,
+        execute: bool = False,
+        timeout: float | None = None,
+        cancel_token: CancellationToken | None = None,
+    ) -> RunResult:
         """Execute every pipeline stage for ``intent_text``.
 
         Args:
@@ -207,6 +220,12 @@ class Pipeline:
             execute: If true, run the generated case through the OpenFOAM
                 solver (when the toolchain is available). Execution always
                 runs fresh, bypassing the resume cache.
+            timeout: Optional wall-clock budget in seconds. When exceeded,
+                the in-flight stage fails fast and the run finalises as
+                ``"failed"`` with a ``workflow.run.timeout`` stage error.
+            cancel_token: Optional :class:`CancellationToken`; tripping it
+                aborts the run at the next stage boundary with a
+                ``workflow.run.cancelled`` stage error.
 
         Returns:
             A :class:`RunResult`. Stage-level failures are captured in
@@ -220,6 +239,7 @@ class Pipeline:
                 code="workflow.input.empty",
             )
 
+        control = RunControl.create(timeout=timeout, cancel_token=cancel_token, clock=self._clock)
         run_id = _run_id_for(intent_text)
         if resume and not execute:
             cached = self._maybe_resume(run_id)
@@ -228,9 +248,16 @@ class Pipeline:
                 return cached
 
         with bind_correlation_id(run_id):
-            return self._run_uncached(run_id, intent_text, execute=execute)
+            return self._run_uncached(run_id, intent_text, execute=execute, control=control)
 
-    def _run_uncached(self, run_id: str, intent_text: str, *, execute: bool = False) -> RunResult:
+    def _run_uncached(
+        self,
+        run_id: str,
+        intent_text: str,
+        *,
+        execute: bool = False,
+        control: RunControl,
+    ) -> RunResult:
         run_dir = self._out_root / "runs" / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -243,6 +270,7 @@ class Pipeline:
 
         # --- parse -------------------------------------------------
         with _timed(StageName.PARSE) as record:
+            control.check(StageName.PARSE.value)
             try:
                 parse_result = self._parse_intent(intent_text)
                 intent = parse_result.intent
@@ -255,6 +283,7 @@ class Pipeline:
 
         # --- compute -----------------------------------------------
         with _timed(StageName.COMPUTE) as record:
+            control.check(StageName.COMPUTE.value)
             try:
                 assert intent is not None
                 flow = derive_flow_state(intent)
@@ -269,6 +298,7 @@ class Pipeline:
         # build_case re-generates geometry; we still record a stage so
         # the timeline is complete. No standalone artifact is written.
         with _timed(StageName.GEOMETRY) as record:
+            control.check(StageName.GEOMETRY.value)
             assert intent is not None
             record["digest"] = hashlib.sha256(
                 intent.airfoil.designation.encode("utf-8")
@@ -278,6 +308,7 @@ class Pipeline:
         # --- case --------------------------------------------------
         case_dir = run_dir / "case"
         with _timed(StageName.CASE) as record:
+            control.check(StageName.CASE.value)
             try:
                 assert intent is not None
                 manifest = build_case(intent, case_dir, overwrite=True)
@@ -291,7 +322,7 @@ class Pipeline:
         # --- solve (opt-in) ---------------------------------------
         if execute:
             assert case_dir is not None
-            solve_result = self._solve_stage(case_dir, run_dir, stages)
+            solve_result = self._solve_stage(case_dir, run_dir, stages, control)
             if stages[-1].status == "failed":
                 return self._finalise(
                     run_id, intent_text, "failed", stages, intent, flow, case_dir, None
@@ -344,22 +375,28 @@ class Pipeline:
         return result
 
     def _solve_stage(
-        self, case_dir: Path, run_dir: Path, stages: list[StageResult]
+        self, case_dir: Path, run_dir: Path, stages: list[StageResult], control: RunControl
     ) -> SolveResult | None:
         """Run the opt-in solve stage, appending its :class:`StageResult`.
 
         Returns the :class:`SolveResult` on success, ``None`` when the
         toolchain is absent (stage recorded as ``skipped``) or the solver
-        failed (stage recorded as ``failed``).
+        failed (stage recorded as ``failed``). The solver's per-command
+        timeout is capped by the run's remaining time budget.
         """
         solve_result: SolveResult | None = None
         with _timed(StageName.SOLVE) as record:
+            control.check(StageName.SOLVE.value)
             if not openfoam_available():
                 record["skipped"] = True
                 _SOLVER_COUNTER.inc(status="skipped")
             else:
                 try:
-                    solve_result = run_case(case_dir, runner=self._command_runner)
+                    solve_result = run_case(
+                        case_dir,
+                        runner=self._command_runner,
+                        timeout=control.solver_timeout(_DEFAULT_SOLVER_TIMEOUT),
+                    )
                     record["digest"] = _sha256_of_json(_solve_dict(solve_result))
                     _SOLVER_COUNTER.inc(status="ok")
                 except OpenFoamError as exc:

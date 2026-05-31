@@ -66,6 +66,13 @@ def test_no_resume_flag(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> N
     assert payload["status"] == "completed"
 
 
+def test_run_timeout_flag(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    rc = main(["run", "--intent", _GOOD, "--out", str(tmp_path), "--timeout", "60"])
+    assert rc == 0
+    payload = _capture(capsys)
+    assert payload["status"] == "completed"
+
+
 def test_verbose_flag_sets_debug_logging(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

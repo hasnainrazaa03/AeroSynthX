@@ -55,6 +55,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run the generated case through OpenFOAM when the toolchain is available.",
     )
+    run_p.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        help="Wall-clock budget in seconds; the run fails fast once exceeded.",
+    )
 
     show_p = sub.add_parser("show", help="Print a persisted run as JSON to stdout.")
     show_p.add_argument("run_id", help="Run id returned by `run`.")
@@ -102,7 +108,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
             )
     pipeline = Pipeline(out_root=args.out, llm_client=llm_client)
     try:
-        result = pipeline.run(args.intent, resume=not args.no_resume, execute=args.execute)
+        result = pipeline.run(
+            args.intent,
+            resume=not args.no_resume,
+            execute=args.execute,
+            timeout=args.timeout,
+        )
     except StageError as exc:
         _LOG.error("stage %s failed: %s", exc.stage, exc)
         return 2
