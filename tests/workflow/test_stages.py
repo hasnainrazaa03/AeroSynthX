@@ -9,13 +9,23 @@ def test_stage_values_are_lowercase() -> None:
         "compute",
         "geometry",
         "case",
+        "solve",
         "persist",
     ]
 
 
 def test_stage_order_matches_enum() -> None:
-    assert tuple(StageName) == STAGE_ORDER
+    # SOLVE is an opt-in stage and is intentionally excluded from the
+    # canonical ordering used for pending/backward-compatibility logic.
+    assert STAGE_ORDER == (
+        StageName.PARSE,
+        StageName.COMPUTE,
+        StageName.GEOMETRY,
+        StageName.CASE,
+        StageName.PERSIST,
+    )
     assert len(STAGE_ORDER) == 5
+    assert StageName.SOLVE not in STAGE_ORDER
 
 
 def test_stage_name_is_string_compatible() -> None:

@@ -28,6 +28,18 @@ from aerosynthx.openfoam.errors import (
     TemplateRenderError,
 )
 from aerosynthx.openfoam.flow_state import FlowState, derive_flow_state
+from aerosynthx.openfoam.runner import (
+    CommandResult,
+    CommandRunner,
+    OpenFoamNotAvailableError,
+    SolveResult,
+    SolverExecutionError,
+    default_command_runner,
+    openfoam_available,
+    parse_force_coefficients,
+    parse_residuals,
+    run_case,
+)
 from aerosynthx.openfoam.validators import validate_case_structure
 
 __all__ = [
@@ -35,12 +47,22 @@ __all__ = [
     "TEMPLATE_VERSION",
     "CaseExistsError",
     "CaseManifest",
+    "CommandResult",
+    "CommandRunner",
     "EnvelopeViolationError",
     "FlowState",
     "OpenFoamError",
+    "OpenFoamNotAvailableError",
+    "SolveResult",
+    "SolverExecutionError",
     "TemplateRenderError",
     "build_case",
+    "default_command_runner",
     "derive_flow_state",
     "expected_case_files",
+    "openfoam_available",
+    "parse_force_coefficients",
+    "parse_residuals",
+    "run_case",
     "validate_case_structure",
 ]

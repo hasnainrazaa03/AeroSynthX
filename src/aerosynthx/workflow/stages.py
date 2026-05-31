@@ -13,6 +13,7 @@ class StageName(StrEnum):
     COMPUTE = "compute"
     GEOMETRY = "geometry"
     CASE = "case"
+    SOLVE = "solve"
     PERSIST = "persist"
 
 

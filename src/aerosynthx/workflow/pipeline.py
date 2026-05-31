@@ -28,10 +28,15 @@ from aerosynthx.intent import (
 from aerosynthx.observability import METRICS, bind_correlation_id
 from aerosynthx.openfoam import (
     CaseManifest,
+    CommandRunner,
     FlowState,
     OpenFoamError,
+    SolveResult,
     build_case,
+    default_command_runner,
     derive_flow_state,
+    openfoam_available,
+    run_case,
 )
 from aerosynthx.workflow.db import RunRow, StageRow, open_session
 from aerosynthx.workflow.errors import StageError
@@ -53,6 +58,11 @@ _PARSE_COUNTER = METRICS.counter(
     "aerosynthx_intent_parse_total",
     "Intent parse attempts, labelled by mode and outcome.",
     label_names=("mode", "status"),
+)
+_SOLVER_COUNTER = METRICS.counter(
+    "aerosynthx_solver_runs_total",
+    "OpenFOAM solver executions, labelled by outcome.",
+    label_names=("status",),
 )
 
 _StageStatus = Literal["ok", "skipped", "failed", "pending"]
@@ -97,6 +107,7 @@ class RunResult:
     case_dir: Path | None
     manifest_digest: str | None
     stages: tuple[StageResult, ...]
+    solve_result: SolveResult | None = None
 
     def to_json(self) -> dict[str, Any]:
         """Render as a JSON-serialisable dict."""
@@ -109,7 +120,19 @@ class RunResult:
             "case_dir": str(self.case_dir) if self.case_dir else None,
             "manifest_digest": self.manifest_digest,
             "stages": [asdict(s) for s in self.stages],
+            "solve": _solve_dict(self.solve_result) if self.solve_result else None,
         }
+
+
+def _solve_dict(state: SolveResult) -> dict[str, Any]:
+    return {
+        "ran": state.ran,
+        "converged": state.converged,
+        "iterations": state.iterations,
+        "final_residual": state.final_residual,
+        "coefficients": state.coefficients,
+        "commands": list(state.commands),
+    }
 
 
 def _flow_state_dict(state: FlowState) -> dict[str, Any]:
@@ -127,10 +150,14 @@ class Pipeline:
         out_root: Path,
         db_path: Path | None = None,
         llm_client: LLMClient | None = None,
+        command_runner: CommandRunner | None = None,
     ) -> None:
         self._out_root = out_root
         self._db_path = db_path if db_path is not None else out_root / _DEFAULT_DB_NAME
         self._llm_client = llm_client
+        self._command_runner: CommandRunner = (
+            command_runner if command_runner is not None else default_command_runner
+        )
 
     @property
     def db_path(self) -> Path:
@@ -169,14 +196,17 @@ class Pipeline:
         _PARSE_COUNTER.inc(mode="llm", status="ok")
         return result
 
-    def run(self, intent_text: str, *, resume: bool = True) -> RunResult:
+    def run(self, intent_text: str, *, resume: bool = True, execute: bool = False) -> RunResult:
         """Execute every pipeline stage for ``intent_text``.
 
         Args:
             intent_text: Natural-language design intent.
             resume: If true and a completed run already exists for this
                 text, return the cached :class:`RunResult` without
-                re-executing any stage.
+                re-executing any stage. Ignored when ``execute`` is true.
+            execute: If true, run the generated case through the OpenFOAM
+                solver (when the toolchain is available). Execution always
+                runs fresh, bypassing the resume cache.
 
         Returns:
             A :class:`RunResult`. Stage-level failures are captured in
@@ -191,16 +221,16 @@ class Pipeline:
             )
 
         run_id = _run_id_for(intent_text)
-        if resume:
+        if resume and not execute:
             cached = self._maybe_resume(run_id)
             if cached is not None:
                 _LOG.info("resume.hit run_id=%s", run_id)
                 return cached
 
         with bind_correlation_id(run_id):
-            return self._run_uncached(run_id, intent_text)
+            return self._run_uncached(run_id, intent_text, execute=execute)
 
-    def _run_uncached(self, run_id: str, intent_text: str) -> RunResult:
+    def _run_uncached(self, run_id: str, intent_text: str, *, execute: bool = False) -> RunResult:
         run_dir = self._out_root / "runs" / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -209,6 +239,7 @@ class Pipeline:
         flow: FlowState | None = None
         manifest: CaseManifest | None = None
         case_dir: Path | None = None
+        solve_result: SolveResult | None = None
 
         # --- parse -------------------------------------------------
         with _timed(StageName.PARSE) as record:
@@ -257,6 +288,15 @@ class Pipeline:
         if record["result"].status == "failed":
             return self._finalise(run_id, intent_text, "failed", stages, intent, flow, None, None)
 
+        # --- solve (opt-in) ---------------------------------------
+        if execute:
+            assert case_dir is not None
+            solve_result = self._solve_stage(case_dir, run_dir, stages)
+            if stages[-1].status == "failed":
+                return self._finalise(
+                    run_id, intent_text, "failed", stages, intent, flow, case_dir, None
+                )
+
         # --- persist -----------------------------------------------
         manifest_digest = _sha256_of_json(manifest.files) if manifest is not None else None
         with _timed(StageName.PERSIST) as record:
@@ -294,6 +334,7 @@ class Pipeline:
             case_dir=case_dir,
             manifest_digest=manifest_digest,
             stages=tuple(stages),
+            solve_result=solve_result,
         )
         (run_dir / "run.json").write_text(
             json.dumps(result.to_json(), indent=2, sort_keys=True) + "\n",
@@ -301,6 +342,36 @@ class Pipeline:
         )
         _RUN_COUNTER.inc(status="completed")
         return result
+
+    def _solve_stage(
+        self, case_dir: Path, run_dir: Path, stages: list[StageResult]
+    ) -> SolveResult | None:
+        """Run the opt-in solve stage, appending its :class:`StageResult`.
+
+        Returns the :class:`SolveResult` on success, ``None`` when the
+        toolchain is absent (stage recorded as ``skipped``) or the solver
+        failed (stage recorded as ``failed``).
+        """
+        solve_result: SolveResult | None = None
+        with _timed(StageName.SOLVE) as record:
+            if not openfoam_available():
+                record["skipped"] = True
+                _SOLVER_COUNTER.inc(status="skipped")
+            else:
+                try:
+                    solve_result = run_case(case_dir, runner=self._command_runner)
+                    record["digest"] = _sha256_of_json(_solve_dict(solve_result))
+                    _SOLVER_COUNTER.inc(status="ok")
+                except OpenFoamError as exc:
+                    record["error"] = str(exc)
+                    _SOLVER_COUNTER.inc(status="failed")
+        stages.append(record["result"])
+        if solve_result is not None:
+            (run_dir / "solve.json").write_text(
+                json.dumps(_solve_dict(solve_result), indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        return solve_result
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -426,6 +497,7 @@ class _StageRecorder:
         self._record: dict[str, Any] = {
             "digest": None,
             "error": None,
+            "skipped": False,
             "result": None,
         }
 
@@ -440,7 +512,12 @@ class _StageRecorder:
             # Unexpected exception -- record as failure and swallow so
             # the pipeline can finalise cleanly.
             self._record["error"] = repr(exc)
-        status: _StageStatus = "failed" if self._record["error"] else "ok"
+        if self._record["error"]:
+            status: _StageStatus = "failed"
+        elif self._record["skipped"]:
+            status = "skipped"
+        else:
+            status = "ok"
         self._record["result"] = StageResult(
             name=self._stage.value,
             status=status,

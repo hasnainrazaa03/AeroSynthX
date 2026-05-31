@@ -40,6 +40,7 @@ release, (d) an updated `CHANGELOG.md`.
 | 7 | Hardening: observability, packaging, deployment | Shipped (`v1.0.0`) |
 | 8 | LLM provider adapters + offline fallback | Shipped (`v1.1.0`) |
 | 9 | API-key authentication | Shipped (`v1.2.0`) |
+| 10 | OpenFOAM solver execution + result extraction | Shipped (`v1.3.0`) |
 | 10+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
 
 Each phase has a dedicated checklist file under `docs/phases/`.
@@ -301,11 +302,13 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 
 ### OpenFOAM execution
 
-- [ ] **P1** Actually run solvers (`blockMesh` → `simpleFoam`) when the
-      toolchain is present; today we only generate the case directory.
+- [x] **P1** Actually run solvers (`blockMesh` → `simpleFoam`) when the
+      toolchain is present (Phase 10, `v1.3.0`); opt-in via
+      `run --execute` / API `execute`. Case generation remains the default.
 - [ ] **P2** Mesh generation controls (`snappyHexMesh`, refinement).
-- [ ] **P2** Residual parsing + convergence detection.
-- [ ] **P2** Force-coefficient (Cl/Cd/Cm) extraction post-solve.
+- [x] **P2** Residual parsing + convergence detection (Phase 10, `v1.3.0`).
+- [x] **P2** Force-coefficient (Cl/Cd/Cm) extraction post-solve
+      (Phase 10, `v1.3.0`).
 - [ ] **P2** Turbulence-model selection (kOmegaSST, Spalart–Allmaras).
 - [ ] **P3** ParaView / VTK export and screenshot generation.
 

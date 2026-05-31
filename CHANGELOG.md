@@ -13,6 +13,33 @@ policy.
 ### Added
 - (nothing yet)
 
+## [1.3.0] - 2026-05-31
+
+### Added
+- Phase 10: opt-in OpenFOAM solver execution and result extraction
+  (`aerosynthx.openfoam.runner`), zero new runtime dependencies.
+  - `run_case()` runs `blockMesh` then `simpleFoam` in a generated case,
+    writing `log.<app>` files and returning a `SolveResult` (ran,
+    converged, iterations, final residual, force coefficients, commands).
+  - The process boundary is isolated behind an injectable `CommandRunner`
+    protocol (`default_command_runner` for real subprocess execution), so
+    the residual/coefficient parsers and the run harness are fully
+    unit-testable offline.
+  - `openfoam_available()` gates execution on `WM_PROJECT_DIR` plus the
+    solver applications resolving on `PATH`.
+  - `parse_residuals()` and `parse_force_coefficients()` extract
+    convergence and Cl/Cd/Cm data from solver logs and coefficient tables.
+- Pipeline `solve` stage (opt-in via `Pipeline.run(..., execute=True)` and
+  the `command_runner` constructor argument). When OpenFOAM is absent the
+  stage is recorded as `skipped` and the run still completes; a solver
+  failure marks the run `failed`. Execution always runs fresh, bypassing
+  the resume cache, and writes a `solve.json` artifact plus a `solve`
+  block in `run.json`.
+- `aerosynthx run --execute` CLI flag and `execute` field on the
+  `POST /api/v1/runs` request body.
+- `aerosynthx_solver_runs_total{status}` metric
+  (status ∈ {ok, skipped, failed}).
+
 ## [1.2.0] - 2026-05-31
 
 ### Added
@@ -240,7 +267,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v0.6.0...v1.0.0

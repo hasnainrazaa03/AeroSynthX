@@ -50,6 +50,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Parse with the configured LLM provider (AEROSYNTHX_LLM_* env vars).",
     )
+    run_p.add_argument(
+        "--execute",
+        action="store_true",
+        help="Run the generated case through OpenFOAM when the toolchain is available.",
+    )
 
     show_p = sub.add_parser("show", help="Print a persisted run as JSON to stdout.")
     show_p.add_argument("run_id", help="Run id returned by `run`.")
@@ -79,7 +84,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             )
     pipeline = Pipeline(out_root=args.out, llm_client=llm_client)
     try:
-        result = pipeline.run(args.intent, resume=not args.no_resume)
+        result = pipeline.run(args.intent, resume=not args.no_resume, execute=args.execute)
     except StageError as exc:
         _LOG.error("stage %s failed: %s", exc.stage, exc)
         return 2

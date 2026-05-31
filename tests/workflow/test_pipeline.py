@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -8,6 +9,9 @@ from aerosynthx.intent import DesignIntent
 from aerosynthx.workflow.db import RunRow, open_session
 from aerosynthx.workflow.errors import StageError
 from aerosynthx.workflow.pipeline import Pipeline, load_run
+
+if TYPE_CHECKING:
+    from aerosynthx.openfoam.runner import CommandRunner
 
 _GOOD_INTENT = "NACA 2412 at 50 m/s, alpha 3 deg, chord 1.0 m."
 
@@ -232,3 +236,86 @@ def test_run_records_failure_when_llm_and_offline_both_fail(tmp_path: Path) -> N
     assert result.status == "failed"
     parse = next(s for s in result.stages if s.name == "parse")
     assert parse.status == "failed"
+
+
+def _coeff_runner(case_dir_holder: dict[str, Path]) -> CommandRunner:
+    from collections.abc import Sequence
+
+    from aerosynthx.openfoam.runner import CommandResult
+
+    log = (
+        "smoothSolver:  Solving for Ux, Initial residual = 0.01\n"
+        "SIMPLE solution converged in 1 iterations\n"
+    )
+
+    def runner(command: Sequence[str], *, cwd: Path, timeout: float) -> CommandResult:
+        case_dir_holder["cwd"] = cwd
+        return CommandResult(command=tuple(command), returncode=0, stdout=log, stderr="")
+
+    return runner
+
+
+def test_run_execute_runs_solver(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from aerosynthx.workflow import pipeline as pipe_mod
+
+    monkeypatch.setattr(pipe_mod, "openfoam_available", lambda: True)
+    holder: dict[str, Path] = {}
+    pipe = Pipeline(out_root=tmp_path, command_runner=_coeff_runner(holder))
+    result = pipe.run(_GOOD_INTENT, execute=True)
+
+    assert result.status == "completed"
+    assert result.solve_result is not None
+    assert result.solve_result.converged is True
+    assert len(result.stages) == 6
+    solve = next(s for s in result.stages if s.name == "solve")
+    assert solve.status == "ok"
+    assert (tmp_path / "runs" / result.run_id / "solve.json").is_file()
+
+
+def test_run_execute_skips_without_openfoam(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from aerosynthx.workflow import pipeline as pipe_mod
+
+    monkeypatch.setattr(pipe_mod, "openfoam_available", lambda: False)
+    pipe = Pipeline(out_root=tmp_path)
+    result = pipe.run(_GOOD_INTENT, execute=True)
+
+    assert result.status == "completed"
+    assert result.solve_result is None
+    solve = next(s for s in result.stages if s.name == "solve")
+    assert solve.status == "skipped"
+
+
+def test_run_execute_records_solver_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from collections.abc import Sequence
+
+    from aerosynthx.openfoam.runner import CommandResult
+    from aerosynthx.workflow import pipeline as pipe_mod
+
+    monkeypatch.setattr(pipe_mod, "openfoam_available", lambda: True)
+
+    def failing(command: Sequence[str], *, cwd: Path, timeout: float) -> CommandResult:
+        return CommandResult(command=tuple(command), returncode=1, stdout="", stderr="boom")
+
+    pipe = Pipeline(out_root=tmp_path, command_runner=failing)
+    result = pipe.run(_GOOD_INTENT, execute=True)
+
+    assert result.status == "failed"
+    solve = next(s for s in result.stages if s.name == "solve")
+    assert solve.status == "failed"
+    persist = next(s for s in result.stages if s.name == "persist")
+    assert persist.status == "pending"
+
+
+def test_run_execute_bypasses_resume(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from aerosynthx.workflow import pipeline as pipe_mod
+
+    monkeypatch.setattr(pipe_mod, "openfoam_available", lambda: False)
+    pipe = Pipeline(out_root=tmp_path)
+    pipe.run(_GOOD_INTENT)  # completes & caches (5 stages, no solve)
+    # execute=True must re-run and add the solve stage despite the cache.
+    result = pipe.run(_GOOD_INTENT, execute=True)
+    assert len(result.stages) == 6

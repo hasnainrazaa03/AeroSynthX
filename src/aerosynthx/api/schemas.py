@@ -17,6 +17,10 @@ class RunRequest(BaseModel):
         default=False,
         description="Parse with the configured LLM provider instead of the offline parser.",
     )
+    execute: bool = Field(
+        default=False,
+        description="Run the generated case through OpenFOAM when the toolchain is available.",
+    )
 
 
 class RunSummary(BaseModel):
