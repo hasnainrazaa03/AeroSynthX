@@ -41,7 +41,8 @@ release, (d) an updated `CHANGELOG.md`.
 | 8 | LLM provider adapters + offline fallback | Shipped (`v1.1.0`) |
 | 9 | API-key authentication | Shipped (`v1.2.0`) |
 | 10 | OpenFOAM solver execution + result extraction | Shipped (`v1.3.0`) |
-| 10+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
+| 11 | RBAC scopes + rate limiting + body-size limits | Shipped (`v1.4.0`) |
+| 11+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
 
 Each phase has a dedicated checklist file under `docs/phases/`.
 
@@ -264,8 +265,10 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 
 ### Security & multi-tenancy
 
-- [ ] **P1** Per-key scopes / roles (RBAC): read-only vs. run-create keys.
-- [ ] **P1** Rate limiting + request body-size limits per key/IP.
+- [x] **P1** Per-key scopes / roles (RBAC): read-only vs. run-create keys
+      (Phase 11, `v1.4.0`).
+- [x] **P1** Rate limiting + request body-size limits per key/IP
+      (Phase 11, `v1.4.0`).
 - [ ] **P2** Named keys + audit log (who created which run).
 - [ ] **P2** Key rotation: DB-backed key store with `created/expires`.
 - [ ] **P2** CORS allow-list configuration for browser clients.
@@ -351,8 +354,9 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 
 ### Suggested next phase
 
-**Phase 10 — OpenFOAM solver execution + result extraction** is the
-highest-leverage **P1**: it turns generated cases into real CFD results
-(Cl/Cd/Cm), which every downstream UI/report feature depends on. A strong
-runner-up is **RBAC + rate limiting**, building directly on the Phase 9
-auth foundation.
+**Phase 11 — RBAC scopes + rate limiting + body-size limits** shipped in
+`v1.4.0`, hardening the multi-user API surface. The highest-leverage **P1**
+next is **result post-processing & reporting** — turning the solver's
+`SolveResult` (Cl/Cd/Cm, residual history) into shareable artifacts
+(plots, a run report endpoint), which the UI and any export/comparison
+feature depend on.

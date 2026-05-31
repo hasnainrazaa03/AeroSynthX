@@ -64,6 +64,24 @@ def _build_parser() -> argparse.ArgumentParser:
     serve_p.add_argument("--out", required=True, type=Path, help="Output directory used by runs.")
     serve_p.add_argument("--host", default="127.0.0.1", help="Bind host.")
     serve_p.add_argument("--port", default=8000, type=int, help="Bind port.")
+    serve_p.add_argument(
+        "--rate-limit",
+        type=int,
+        default=None,
+        help="Max requests per window per principal (0 disables; default from env).",
+    )
+    serve_p.add_argument(
+        "--rate-window-seconds",
+        type=float,
+        default=None,
+        help="Rate-limit window in seconds (default from env or 60).",
+    )
+    serve_p.add_argument(
+        "--max-body-bytes",
+        type=int,
+        default=None,
+        help="Reject larger request bodies with 413 (0 disables; default from env or 1 MiB).",
+    )
 
     return parser
 
@@ -108,7 +126,13 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     from aerosynthx.api import create_app
     from aerosynthx.intent import build_client_from_env
 
-    app = create_app(out_root=args.out, llm_client=build_client_from_env())
+    app = create_app(
+        out_root=args.out,
+        llm_client=build_client_from_env(),
+        rate_limit=args.rate_limit,
+        rate_window_seconds=args.rate_window_seconds,
+        max_body_bytes=args.max_body_bytes,
+    )
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
     return 0
 

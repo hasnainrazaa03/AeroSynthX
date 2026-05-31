@@ -254,3 +254,50 @@ def test_auth_leaves_meta_endpoints_open(auth_client: TestClient) -> None:
 def test_open_mode_allows_unauthenticated(client: TestClient) -> None:
     # Default fixture configures no keys -> store disabled -> open access.
     assert client.get("/api/v1/runs").status_code == 200
+
+
+def test_scoped_keys_enforce_rbac(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AEROSYNTHX_API_KEYS", "reader:read, runner:run")
+    app = create_app(out_root=tmp_path)
+    with TestClient(app) as c:
+        # Reader can list but cannot create.
+        assert c.get("/api/v1/runs", headers={"X-API-Key": "reader"}).status_code == 200
+        forbidden = c.post(
+            "/api/v1/runs", json={"intent_text": _GOOD}, headers={"X-API-Key": "reader"}
+        )
+        assert forbidden.status_code == 403
+        # Runner can create but cannot list.
+        created = c.post(
+            "/api/v1/runs", json={"intent_text": _GOOD}, headers={"X-API-Key": "runner"}
+        )
+        assert created.status_code == 201
+        assert c.get("/api/v1/runs", headers={"X-API-Key": "runner"}).status_code == 403
+
+
+def test_rate_limit_returns_429(tmp_path: Path) -> None:
+    app = create_app(out_root=tmp_path, rate_limit=1, rate_window_seconds=60.0)
+    with TestClient(app) as c:
+        assert c.get("/api/v1/runs").status_code == 200
+        throttled = c.get("/api/v1/runs")
+        assert throttled.status_code == 429
+        assert throttled.json()["detail"] == "rate limit exceeded"
+        assert int(throttled.headers["Retry-After"]) >= 1
+        # Meta endpoints are never throttled.
+        assert c.get("/healthz").status_code == 200
+
+
+def test_body_size_limit_returns_413(tmp_path: Path) -> None:
+    app = create_app(out_root=tmp_path, max_body_bytes=10)
+    with TestClient(app) as c:
+        r = c.post("/api/v1/runs", json={"intent_text": _GOOD})
+        assert r.status_code == 413
+        assert r.json()["detail"] == "request body too large"
+        # Response still carries the correlation id from the outer middleware.
+        assert r.headers.get("X-Correlation-Id")
+
+
+def test_body_size_limit_disabled_allows_large(tmp_path: Path) -> None:
+    app = create_app(out_root=tmp_path, max_body_bytes=0)
+    with TestClient(app) as c:
+        r = c.post("/api/v1/runs", json={"intent_text": _GOOD})
+        assert r.status_code == 201

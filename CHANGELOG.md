@@ -13,6 +13,32 @@ policy.
 ### Added
 - (nothing yet)
 
+## [1.4.0] - 2026-05-31
+
+### Added
+- Phase 11: per-key RBAC scopes plus in-process rate limiting and request
+  body-size limits, with zero new runtime dependencies.
+  - `Scope` (`read`, `run`) is now attached to each API key. The
+    `AEROSYNTHX_API_KEYS` syntax accepts scoped entries
+    (`admin:read|run, reader:read, runner:run`); bare keys keep all scopes
+    for backward compatibility. `POST /api/v1/runs` requires the `run`
+    scope and the read endpoints require `read`; insufficient scope now
+    returns `403` with `result="forbidden"` recorded on
+    `aerosynthx_auth_attempts_total`.
+  - New `aerosynthx.api.ratelimit` module adds a thread-safe token-bucket
+    `RateLimiter` (injectable clock) and a `RateLimitMiddleware` that
+    guards only the `/api/v1/` data plane. Over-rate requests get `429`
+    with a `Retry-After` header; oversized bodies get `413`. Rejections
+    are counted on `aerosynthx_rate_limited_total{reason}`
+    (`rate_limited`, `body_too_large`). The principal is the presented API
+    key, else the client IP.
+  - `create_app()` gained `rate_limit`, `rate_window_seconds`, and
+    `max_body_bytes` parameters (each falls back to
+    `AEROSYNTHX_RATE_LIMIT` / `AEROSYNTHX_RATE_WINDOW_SECONDS` /
+    `AEROSYNTHX_MAX_BODY_BYTES`; default body limit 1 MiB, rate limiting
+    off unless configured). The `serve` CLI exposes matching
+    `--rate-limit`, `--rate-window-seconds`, and `--max-body-bytes` flags.
+
 ## [1.3.0] - 2026-05-31
 
 ### Added
@@ -267,7 +293,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.0.0...v1.1.0

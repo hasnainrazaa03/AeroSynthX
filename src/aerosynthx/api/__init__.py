@@ -8,6 +8,6 @@ from __future__ import annotations
 
 from aerosynthx.api.app import create_app
 from aerosynthx.api.schemas import RunRequest, RunSummary, VersionInfo
-from aerosynthx.api.security import ApiKeyStore
+from aerosynthx.api.security import ApiKeyStore, Scope
 
-__all__ = ["ApiKeyStore", "RunRequest", "RunSummary", "VersionInfo", "create_app"]
+__all__ = ["ApiKeyStore", "RunRequest", "RunSummary", "Scope", "VersionInfo", "create_app"]

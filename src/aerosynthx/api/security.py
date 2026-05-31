@@ -13,6 +13,7 @@ import hmac
 import os
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from enum import StrEnum
 
 from fastapi import Header, HTTPException, status
 
@@ -27,31 +28,79 @@ _AUTH_COUNTER = METRICS.counter(
 )
 
 
+class Scope(StrEnum):
+    """Capabilities a key may be granted."""
+
+    READ = "read"
+    RUN = "run"
+
+
+_ALL_SCOPES: frozenset[Scope] = frozenset(Scope)
+
+
+def _parse_scopes(raw: str) -> frozenset[Scope]:
+    """Parse a ``read|run`` (or space-separated) scope spec, ignoring junk."""
+    scopes: set[Scope] = set()
+    for token in raw.replace("|", " ").split():
+        try:
+            scopes.add(Scope(token.strip().lower()))
+        except ValueError:
+            continue
+    return frozenset(scopes)
+
+
 def _hash_key(key: str) -> str:
     return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
 class ApiKeyStore:
-    """An immutable set of accepted API keys, stored as SHA-256 hashes."""
+    """Accepted API keys (SHA-256 hashes) mapped to their granted scopes."""
 
-    hashes: frozenset[str] = field(default_factory=frozenset)
+    scopes_by_hash: Mapping[str, frozenset[Scope]] = field(default_factory=dict)
+
+    @property
+    def hashes(self) -> frozenset[str]:
+        """Return the set of accepted key hashes."""
+        return frozenset(self.scopes_by_hash)
 
     @property
     def enabled(self) -> bool:
         """Return ``True`` when at least one key is configured."""
-        return bool(self.hashes)
+        return bool(self.scopes_by_hash)
 
     @classmethod
-    def from_keys(cls, keys: Iterable[str]) -> ApiKeyStore:
-        """Build a store from raw key strings (blank entries are ignored)."""
-        return cls(hashes=frozenset(_hash_key(k.strip()) for k in keys if k.strip()))
+    def from_keys(
+        cls, keys: Iterable[str], *, scopes: Iterable[Scope] | None = None
+    ) -> ApiKeyStore:
+        """Build a store from raw key strings (blank entries are ignored).
+
+        Every key is granted ``scopes`` (all scopes by default).
+        """
+        granted = _ALL_SCOPES if scopes is None else frozenset(scopes)
+        mapping = {_hash_key(k.strip()): granted for k in keys if k.strip()}
+        return cls(scopes_by_hash=mapping)
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> ApiKeyStore:
-        """Build a store from ``AEROSYNTHX_API_KEYS`` (comma-separated)."""
+        """Build a store from ``AEROSYNTHX_API_KEYS`` (comma-separated).
+
+        Each entry is ``key`` (all scopes) or ``key:read|run`` (explicit
+        scopes). Blank entries and entries with an empty key are skipped.
+        """
         source = os.environ if env is None else env
-        return cls.from_keys(source.get(_ENV_VAR, "").split(","))
+        mapping: dict[str, frozenset[Scope]] = {}
+        for entry in source.get(_ENV_VAR, "").split(","):
+            spec = entry.strip()
+            if not spec:
+                continue
+            key_part, sep, scope_part = spec.partition(":")
+            key = key_part.strip()
+            if not key:
+                continue
+            scopes = _parse_scopes(scope_part) if sep and scope_part.strip() else _ALL_SCOPES
+            mapping[_hash_key(key)] = scopes
+        return cls(scopes_by_hash=mapping)
 
     def verify(self, presented: str | None) -> bool:
         """Constant-time check that ``presented`` is an accepted key."""
@@ -59,18 +108,32 @@ class ApiKeyStore:
             return False
         candidate = _hash_key(presented)
         accepted = False
-        for stored in self.hashes:
+        for stored in self.scopes_by_hash:
             # Accumulate (no short-circuit) to keep timing uniform.
             accepted |= hmac.compare_digest(candidate, stored)
         return accepted
 
+    def scopes_for(self, presented: str | None) -> frozenset[Scope]:
+        """Return the scopes granted to ``presented`` (empty if unknown)."""
+        if not presented:
+            return frozenset()
+        candidate = _hash_key(presented)
+        matched: frozenset[Scope] = frozenset()
+        for stored, scopes in self.scopes_by_hash.items():
+            if hmac.compare_digest(candidate, stored):
+                matched = scopes
+        return matched
 
-def make_api_key_dependency(store: ApiKeyStore) -> Callable[[str | None, str | None], None]:
+
+def make_api_key_dependency(
+    store: ApiKeyStore, *, required_scope: Scope | None = None
+) -> Callable[[str | None, str | None], None]:
     """Build a FastAPI dependency that enforces ``store``'s API keys.
 
     The returned callable reads the ``X-API-Key`` header, falling back to
     ``Authorization: Bearer <key>``. It is a no-op when ``store`` is
-    disabled (no keys configured).
+    disabled (no keys configured). When ``required_scope`` is set, an
+    authenticated key lacking that scope is rejected with ``403``.
     """
 
     def dependency(
@@ -98,6 +161,12 @@ def make_api_key_dependency(store: ApiKeyStore) -> Callable[[str | None, str | N
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="invalid API key",
                 headers={"WWW-Authenticate": "Bearer"},
+            )
+        if required_scope is not None and required_scope not in store.scopes_for(presented):
+            _AUTH_COUNTER.inc(result="forbidden")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"missing required scope: {required_scope.value}",
             )
         _AUTH_COUNTER.inc(result="ok")
 
