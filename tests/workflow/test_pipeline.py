@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+from sqlalchemy import select
 
 from aerosynthx.intent import DesignIntent
 from aerosynthx.workflow.cancellation import CancellationToken
@@ -196,6 +197,49 @@ def test_run_id_normalises_whitespace(tmp_path: Path) -> None:
     a = pipe.run(_GOOD_INTENT)
     b = pipe.run("  " + _GOOD_INTENT.replace(" ", "  ") + "  ")
     assert a.run_id == b.run_id
+
+
+def test_relink_runs_noop_when_db_missing(tmp_path: Path) -> None:
+    pipe = Pipeline(out_root=tmp_path)
+    result = pipe.relink_runs()
+    assert (result.linked, result.bytes_reclaimed, result.skipped) == (0, 0, 0)
+
+
+def test_relink_runs_links_then_idempotent(tmp_path: Path) -> None:
+    pipe = Pipeline(out_root=tmp_path)
+    pipe.run(_GOOD_INTENT)
+
+    first = pipe.relink_runs()
+    assert first.linked > 0
+    assert first.bytes_reclaimed > 0
+
+    # A second pass finds every file already linked.
+    second = pipe.relink_runs()
+    assert second.linked == 0
+    assert second.bytes_reclaimed == 0
+    assert second.skipped > 0
+
+
+def test_relink_runs_skips_missing_manifest(tmp_path: Path) -> None:
+    pipe = Pipeline(out_root=tmp_path)
+    run = pipe.run(_GOOD_INTENT)
+    assert run.case_dir is not None
+    (run.case_dir / "aerosynthx_manifest.json").unlink()
+
+    result = pipe.relink_runs()
+    assert (result.linked, result.bytes_reclaimed, result.skipped) == (0, 0, 0)
+
+
+def test_relink_runs_skips_rows_without_case_dir(tmp_path: Path) -> None:
+    pipe = Pipeline(out_root=tmp_path)
+    pipe.run(_GOOD_INTENT)
+    with open_session(pipe.db_path) as session:
+        for row in session.execute(select(RunRow)).scalars().all():
+            row.case_dir = None
+        session.commit()
+
+    result = pipe.relink_runs()
+    assert (result.linked, result.bytes_reclaimed, result.skipped) == (0, 0, 0)
 
 
 def test_run_result_to_json_is_serialisable(tmp_path: Path) -> None:

@@ -99,6 +99,21 @@ def test_prune_subcommand_without_gc(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert "collected" not in out
 
 
+def test_relink_subcommand_reclaims_space(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
+    capsys.readouterr()
+
+    rc = main(["relink", "--out", str(tmp_path)])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "linked" in out
+    assert "bytes reclaimed" in out
+    assert "skipped" in out
+
+
 def test_run_failing_intent_returns_nonzero(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

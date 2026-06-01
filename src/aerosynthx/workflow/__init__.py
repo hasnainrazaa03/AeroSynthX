@@ -15,6 +15,7 @@ from __future__ import annotations
 from aerosynthx.workflow.artifacts import (
     ArchiveResult,
     ContentAddressedStore,
+    RelinkResult,
     StoreStats,
 )
 from aerosynthx.workflow.cancellation import CancellationToken, Deadline, RunControl
@@ -53,6 +54,7 @@ __all__ = [
     "ProgressEvent",
     "ProgressSink",
     "PruneResult",
+    "RelinkResult",
     "RunCancelledError",
     "RunControl",
     "RunListItem",

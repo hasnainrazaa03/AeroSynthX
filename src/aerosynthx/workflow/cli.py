@@ -96,6 +96,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="After pruning, garbage-collect store blobs no run references.",
     )
 
+    relink_p = sub.add_parser(
+        "relink", help="Hard-link run files into the store to reclaim disk space."
+    )
+    relink_p.add_argument("--out", required=True, type=Path, help="Output directory used by runs.")
+
     serve_p = sub.add_parser("serve", help="Start the FastAPI server.")
     serve_p.add_argument("--out", required=True, type=Path, help="Output directory used by runs.")
     serve_p.add_argument("--host", default="127.0.0.1", help="Bind host.")
@@ -192,6 +197,16 @@ def _cmd_prune(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_relink(args: argparse.Namespace) -> int:
+    pipeline = Pipeline(out_root=args.out)
+    result = pipeline.relink_runs()
+    sys.stdout.write(
+        f"linked {result.linked} file(s); "
+        f"{result.bytes_reclaimed} bytes reclaimed; {result.skipped} skipped\n"
+    )
+    return 0
+
+
 def _cmd_serve(args: argparse.Namespace) -> int:
     # Imports deferred so `aerosynthx run`/`show` do not pay the FastAPI cost.
     import uvicorn
@@ -223,6 +238,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_delete(args)
     if args.command == "prune":
         return _cmd_prune(args)
+    if args.command == "relink":
+        return _cmd_relink(args)
     if args.command == "serve":  # pragma: no branch - argparse enforces choice
         return _cmd_serve(args)
     parser.error(f"unknown command: {args.command}")  # pragma: no cover

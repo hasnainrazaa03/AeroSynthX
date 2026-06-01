@@ -34,6 +34,11 @@ _CAS_BLOBS = METRICS.counter(
     label_names=("outcome",),
 )
 
+_RUN_FILES_LINKED = METRICS.counter(
+    "aerosynthx_run_files_linked_total",
+    "Run-directory files replaced by hard links into the artifact store.",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class ArchiveResult:
@@ -66,6 +71,22 @@ class StoreStats:
 
     blobs: int = 0
     bytes: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class RelinkResult:
+    """Outcome of hard-linking a run directory's files into the store.
+
+    Attributes:
+        linked: Number of run files replaced by a hard link to a blob.
+        bytes_reclaimed: Total bytes of the replaced run-file copies.
+        skipped: Files left untouched (blob missing, run copy missing, or
+            already sharing the blob's inode).
+    """
+
+    linked: int = 0
+    bytes_reclaimed: int = 0
+    skipped: int = 0
 
 
 class ContentAddressedStore:
@@ -156,6 +177,47 @@ class ContentAddressedStore:
         size = path.stat().st_size
         path.unlink()
         return size
+
+    def link_case(self, case_dir: Path, files: Mapping[str, str]) -> RelinkResult:
+        """Replace each run file in ``files`` with a hard link to its blob.
+
+        For every ``relative_path -> digest`` entry the run-directory copy is
+        atomically swapped for a hard link into the store, so the redundant
+        on-disk bytes are reclaimed while the path keeps reading identically.
+        A file is skipped when its blob is missing, its run copy is missing, or
+        it already shares the blob's inode (making the operation idempotent).
+
+        Args:
+            case_dir: Directory containing the run's case files.
+            files: Mapping of ``relative_path -> sha256`` (a
+                :attr:`CaseManifest.files` map).
+
+        Returns:
+            A :class:`RelinkResult` summarising linked, reclaimed, and skipped.
+        """
+        linked = 0
+        reclaimed = 0
+        skipped = 0
+        for rel_path, digest in files.items():
+            blob = self.path_for(digest)
+            dest = case_dir / rel_path
+            if not blob.is_file():
+                skipped += 1
+                continue
+            if not dest.is_file():
+                skipped += 1
+                continue
+            if dest.stat().st_ino == blob.stat().st_ino:
+                skipped += 1
+                continue
+            size = dest.stat().st_size
+            tmp = dest.parent / f".{digest}.{uuid.uuid4().hex}.link"
+            os.link(blob, tmp)
+            os.replace(tmp, dest)
+            linked += 1
+            reclaimed += size
+            _RUN_FILES_LINKED.inc()
+        return RelinkResult(linked=linked, bytes_reclaimed=reclaimed, skipped=skipped)
 
     def _write_blob(self, digest: str, payload: bytes) -> None:
         target = self.path_for(digest)

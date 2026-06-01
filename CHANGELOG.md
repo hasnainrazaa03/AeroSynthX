@@ -13,6 +13,25 @@ policy.
 ### Added
 - (nothing yet)
 
+## [1.14.0] - 2026-05-31
+
+### Added
+- Phase 21: relink run directories into the artifact store via hard links,
+  with zero new runtime dependencies.
+  - New `ContentAddressedStore.link_case(case_dir, files)` replaces each
+    surviving run file with a hard link to its content-addressed blob,
+    returning a `RelinkResult` (`linked`, `bytes_reclaimed`, `skipped`).
+    It is idempotent: already-linked files, missing blobs, and missing
+    destinations are skipped rather than re-linked.
+  - New `Pipeline.relink_runs()` aggregates `link_case` across every run
+    that still has an on-disk manifest, reclaiming the disk space
+    duplicated between run directories and the store.
+  - New `aerosynthx relink --out DIR` CLI subcommand and
+    `POST /api/v1/maintenance/relink` endpoint (run scope) expose the
+    operation, reporting the number of files linked, bytes reclaimed, and
+    files skipped.
+  - New `aerosynthx_run_files_linked_total` counter tracks relinked files.
+
 ## [1.13.0] - 2026-05-31
 
 ### Added
@@ -456,7 +475,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.13.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.14.0...HEAD
+[1.14.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.10.0...v1.11.0

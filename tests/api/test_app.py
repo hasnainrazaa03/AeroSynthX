@@ -224,6 +224,24 @@ def test_prune_endpoint_without_gc_leaves_blobs(client: TestClient) -> None:
     assert client.get("/api/v1/store/stats").json()["blobs"] == before
 
 
+def test_relink_endpoint_links_run_files(client: TestClient) -> None:
+    client.post("/api/v1/runs", json={"intent_text": _GOOD})
+
+    resp = client.post("/api/v1/maintenance/relink")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["linked"] > 0
+    assert body["bytes_reclaimed"] > 0
+    assert body["skipped"] == 0
+
+    # A second relink finds everything already linked.
+    again = client.post("/api/v1/maintenance/relink").json()
+    assert again["linked"] == 0
+    assert again["bytes_reclaimed"] == 0
+    assert again["skipped"] > 0
+
+
 def test_list_files_404_unknown_run(client: TestClient) -> None:
     r = client.get("/api/v1/runs/deadbeefdeadbeef/files")
     assert r.status_code == 404
@@ -423,6 +441,13 @@ def test_scoped_keys_enforce_rbac(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
                 "/api/v1/maintenance/prune", json={}, headers={"X-API-Key": "runner"}
             ).status_code
             == 200
+        )
+        # Relinking also requires the run scope.
+        assert (
+            c.post("/api/v1/maintenance/relink", headers={"X-API-Key": "reader"}).status_code == 403
+        )
+        assert (
+            c.post("/api/v1/maintenance/relink", headers={"X-API-Key": "runner"}).status_code == 200
         )
 
 

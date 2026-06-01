@@ -14,7 +14,7 @@ import json
 import logging
 import shutil
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -43,7 +43,7 @@ from aerosynthx.openfoam import (
     openfoam_available,
     run_case,
 )
-from aerosynthx.workflow.artifacts import ContentAddressedStore
+from aerosynthx.workflow.artifacts import ContentAddressedStore, RelinkResult
 from aerosynthx.workflow.cancellation import CancellationToken, RunControl
 from aerosynthx.workflow.db import RunRow, StageRow, open_session
 from aerosynthx.workflow.errors import StageError
@@ -348,6 +348,41 @@ class Pipeline:
             data = json.loads(manifest_path.read_text(encoding="utf-8"))
             digests.update(data.get("files", {}).values())
         return digests
+
+    def relink_runs(self) -> RelinkResult:
+        """Hard-link every surviving run's case files into the artifact store.
+
+        Reclaims the on-disk bytes duplicated between each run directory and
+        the content-addressed store by replacing run files with hard links to
+        their blobs. Idempotent: already-linked files are skipped.
+
+        Returns:
+            An aggregate :class:`RelinkResult` across all runs.
+        """
+        linked = 0
+        reclaimed = 0
+        skipped = 0
+        for case_dir, files in self._iter_run_cases():
+            result = self._artifact_store.link_case(case_dir, files)
+            linked += result.linked
+            reclaimed += result.bytes_reclaimed
+            skipped += result.skipped
+        return RelinkResult(linked=linked, bytes_reclaimed=reclaimed, skipped=skipped)
+
+    def _iter_run_cases(self) -> Iterator[tuple[Path, dict[str, str]]]:
+        """Yield ``(case_dir, files)`` for every run with a manifest on disk."""
+        if not self._db_path.exists():
+            return
+        with open_session(self._db_path) as session:
+            case_dirs = [r.case_dir for r in session.execute(select(RunRow)).scalars().all()]
+        for case_dir in case_dirs:
+            if case_dir is None:
+                continue
+            manifest_path = Path(case_dir) / "aerosynthx_manifest.json"
+            if not manifest_path.is_file():
+                continue
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            yield Path(case_dir), data.get("files", {})
 
     def _parse_intent(self, intent_text: str) -> ParseResult:
         """Parse ``intent_text``, preferring the LLM when configured.

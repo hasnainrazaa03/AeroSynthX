@@ -1,0 +1,42 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| AeroSynthX-generated OpenFOAM dictionary                                    |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    object      omega;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 0 -1 0 0 0 0];
+
+internalField   uniform 79.85957062;
+
+boundaryField
+{
+    inlet
+    {
+        type            fixedValue;
+        value           uniform 79.85957062;
+    }
+    outlet
+    {
+        type            zeroGradient;
+    }
+    top
+    {
+        type            slip;
+    }
+    bottom
+    {
+        type            slip;
+    }
+    frontAndBack
+    {
+        type            empty;
+    }
+}
+
+// ************************************************************************* //

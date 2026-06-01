@@ -273,6 +273,15 @@ def create_app(
             "freed_bytes": freed,
         }
 
+    @app.post("/api/v1/maintenance/relink", tags=["store"], dependencies=[auth_run])
+    def relink_runs() -> dict[str, int]:
+        result = pipeline.relink_runs()
+        return {
+            "linked": result.linked,
+            "bytes_reclaimed": result.bytes_reclaimed,
+            "skipped": result.skipped,
+        }
+
     @app.get("/api/v1/runs/{run_id}/files", tags=["runs"], dependencies=[auth_read])
     def list_run_files(run_id: str) -> dict[str, list[str]]:
         case_dir = _require_case_dir(pipeline, run_id)

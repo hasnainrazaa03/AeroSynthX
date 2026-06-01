@@ -9,6 +9,7 @@ from aerosynthx.observability import render_prometheus
 from aerosynthx.workflow.artifacts import (
     ArchiveResult,
     ContentAddressedStore,
+    RelinkResult,
     StoreStats,
 )
 
@@ -116,4 +117,74 @@ def test_metric_counts_outcomes(tmp_path: Path) -> None:
     assert "aerosynthx_cas_blobs_total" in after
     assert 'outcome="stored"' in after
     assert 'outcome="deduplicated"' in after
+    assert before != after
+
+
+def test_relink_result_defaults() -> None:
+    result = RelinkResult()
+    assert (result.linked, result.bytes_reclaimed, result.skipped) == (0, 0, 0)
+
+
+def test_link_case_replaces_files_with_hard_links(tmp_path: Path) -> None:
+    case_dir = tmp_path / "case"
+    files = _write_case(case_dir, {"0/U": b"velocity", "0/p": b"pressure-bytes"})
+    store = ContentAddressedStore(tmp_path / "blobs")
+    store.archive_case(case_dir, files)
+
+    u_path = case_dir / "0/U"
+    blob = store.path_for(files["0/U"])
+    # Before linking the run file and blob are distinct inodes.
+    assert u_path.stat().st_ino != blob.stat().st_ino
+
+    result = store.link_case(case_dir, files)
+    assert result.linked == 2
+    assert result.skipped == 0
+    assert result.bytes_reclaimed == len(b"velocity") + len(b"pressure-bytes")
+    # Now they share an inode and the content is unchanged.
+    assert u_path.stat().st_ino == blob.stat().st_ino
+    assert u_path.read_bytes() == b"velocity"
+
+
+def test_link_case_is_idempotent(tmp_path: Path) -> None:
+    case_dir = tmp_path / "case"
+    files = _write_case(case_dir, {"0/U": b"velocity"})
+    store = ContentAddressedStore(tmp_path / "blobs")
+    store.archive_case(case_dir, files)
+    store.link_case(case_dir, files)
+
+    again = store.link_case(case_dir, files)
+    assert again.linked == 0
+    assert again.skipped == 1
+    assert again.bytes_reclaimed == 0
+
+
+def test_link_case_skips_missing_blob_and_dest(tmp_path: Path) -> None:
+    case_dir = tmp_path / "case"
+    files = _write_case(case_dir, {"0/U": b"velocity"})
+    store = ContentAddressedStore(tmp_path / "blobs")
+
+    # Blob never archived -> missing-blob branch.
+    missing_blob = store.link_case(case_dir, files)
+    assert missing_blob.linked == 0
+    assert missing_blob.skipped == 1
+
+    # Archive, then delete the run-dir file -> missing-dest branch.
+    store.archive_case(case_dir, files)
+    (case_dir / "0/U").unlink()
+    missing_dest = store.link_case(case_dir, files)
+    assert missing_dest.linked == 0
+    assert missing_dest.skipped == 1
+
+
+def test_link_case_increments_metric(tmp_path: Path) -> None:
+    case_dir = tmp_path / "case"
+    files = _write_case(case_dir, {"0/U": b"metric-link-bytes"})
+    store = ContentAddressedStore(tmp_path / "blobs")
+    store.archive_case(case_dir, files)
+
+    before = render_prometheus()
+    store.link_case(case_dir, files)
+    after = render_prometheus()
+
+    assert "aerosynthx_run_files_linked_total" in after
     assert before != after

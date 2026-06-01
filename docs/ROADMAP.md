@@ -1,6 +1,6 @@
 # AeroSynthX — Roadmap
 
-Status: Living document (current release `v1.13.0`).
+Status: Living document (current release `v1.14.0`).
 This roadmap defines phases, milestones, acceptance criteria, and the
 dependencies between them. It is the source of truth for sequencing.
 For the post-v1.2.0 feature backlog, see
@@ -51,7 +51,8 @@ release, (d) an updated `CHANGELOG.md`.
 | 18 | Content-addressed artifact store (de-dup case files) | Shipped (`v1.11.0`) |
 | 19 | Automatic retention & cleanup (prune runs + blob GC) | Shipped (`v1.12.0`) |
 | 20 | Run-list pagination, filtering & full-text search | Shipped (`v1.13.0`) |
-| 20+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
+| 21 | Relink run dirs to store blobs (hard links) | Shipped (`v1.14.0`) |
+| 21+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
 
 Each phase has a dedicated checklist file under `docs/phases/`.
 
@@ -336,8 +337,9 @@ them to a `docs/phases/PHASE_N.md` when picked up.
   age/count pruning + unreferenced-blob garbage collection).
 - [x] **P2** Content-addressed artifact store de-duplicating case files
   across runs (Phase 18, `v1.11.0`; shared SHA-256 blob store under
-  `<out_root>/blobs` with a `GET /store/stats` endpoint — relinking run
-  directories to blobs remains future work).
+  `<out_root>/blobs` with a `GET /store/stats` endpoint). Relinking run
+  directories to those blobs via hard links shipped in Phase 21,
+  `v1.14.0` (`relink` CLI + `POST /api/v1/maintenance/relink`).
 - [ ] **P2** Postgres backend option (SQLite stays the default).
 - [ ] **P2** Alembic migrations for schema evolution.
 - [ ] **P2** Completion webhooks / callbacks.
@@ -377,11 +379,10 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 
 ### Suggested next phase
 
-**Phase 20 — run-list pagination, filtering & full-text search** shipped in
-`v1.13.0`: `query_runs` powers `offset`/`status`/`q` on `GET /api/v1/runs`
-with `X-Total-Count` headers and a searchable, paged UI. The strongest
-remaining candidate is **relinking run directories to blobs** (serve files
-straight from the content-addressed store via hard-links/symlinks so on-disk
-run trees shrink, under *Workflow & data*). Other high-value options are
-**charts of physics results + a downloadable report in the UI** and
-**OpenTelemetry tracing** (spans per stage + HTTP, under *Observability*).
+**Phase 21 — relink run directories to store blobs** shipped in `v1.14.0`:
+`Pipeline.relink_runs()` hard-links surviving run files into the
+content-addressed store (`relink` CLI + `POST /api/v1/maintenance/relink`),
+reclaiming the disk duplicated between run trees and blobs. The strongest
+remaining candidates are **charts of physics results + a downloadable report
+in the UI** (under *API & UI*) and **OpenTelemetry tracing** (spans per stage
++ HTTP, under *Observability*).
