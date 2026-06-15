@@ -4,6 +4,8 @@ Public API (see ``docs/phases/PHASE_2.md``):
 
 - :class:`Airfoil` -- immutable result of a geometry generation.
 - :func:`naca4` -- NACA 4-digit generator with cosine spacing.
+- :func:`naca5` -- NACA 5-digit generator with cosine spacing.
+- :func:`custom_airfoil` -- User-supplied airfoil generator.
 - :func:`validate_airfoil` -- coordinate validator.
 - :func:`to_selig_dat` / :func:`to_csv` -- string exporters.
 - :func:`render_airfoil_png` / :func:`render_airfoil_svg` -- writers
@@ -18,16 +20,20 @@ affect the normalized airfoil coordinates (which are dimensionless,
 from __future__ import annotations
 
 from aerosynthx.geometry.airfoil import Airfoil
+from aerosynthx.geometry.custom import custom_airfoil
 from aerosynthx.geometry.errors import GeometryError
 from aerosynthx.geometry.exporters import to_csv, to_selig_dat
 from aerosynthx.geometry.naca4 import naca4
+from aerosynthx.geometry.naca5 import naca5
 from aerosynthx.geometry.validators import validate_airfoil
 from aerosynthx.geometry.visualize import render_airfoil_png, render_airfoil_svg
 
 __all__ = [
     "Airfoil",
+    "custom_airfoil",
     "GeometryError",
     "naca4",
+    "naca5",
     "render_airfoil_png",
     "render_airfoil_svg",
     "to_csv",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
@@ -11,6 +12,7 @@ from aerosynthx.workflow.cancellation import CancellationToken
 from aerosynthx.workflow.db import RunRow, open_session
 from aerosynthx.workflow.errors import StageError
 from aerosynthx.workflow.pipeline import Pipeline, load_run, query_runs
+from aerosynthx.xfoil import XfoilResult
 
 if TYPE_CHECKING:
     from aerosynthx.openfoam.runner import CommandRunner
@@ -32,6 +34,32 @@ def test_run_happy_path_produces_all_stage_results(tmp_path: Path) -> None:
     assert result.manifest_digest is not None
     run_json = tmp_path / "runs" / result.run_id / "run.json"
     assert run_json.exists()
+
+
+@patch("aerosynthx.workflow.pipeline.run_xfoil")
+def test_run_xfoil_mode_happy_path(mock_run_xfoil, tmp_path: Path) -> None:
+    """Test the happy path for the xfoil analysis mode."""
+    mock_run_xfoil.return_value = XfoilResult(alpha_deg=3.0, cl=0.5, cd=0.01, cm=-0.02)
+    pipe = Pipeline(out_root=tmp_path)
+    result = pipe.run(_GOOD_INTENT, analysis_mode="xfoil")
+
+    assert result.status == "completed"
+    assert result.xfoil_result is not None
+    assert result.xfoil_result.cl == 0.5
+    assert result.case_dir is None  # No OpenFOAM case should be generated
+
+    # Check that the correct stages were run
+    stage_names = {s.name for s in result.stages}
+    assert "xfoil" in stage_names
+    assert "case" not in stage_names
+    assert "solve" not in stage_names
+
+    # Check that the result was persisted
+    with open_session(pipe.db_path) as session:
+        row = session.get(RunRow, result.run_id)
+        assert row is not None
+        assert row.xfoil_result is not None
+        assert row.xfoil_result.cl == 0.5
 
 
 def test_run_persists_to_db(tmp_path: Path) -> None:
@@ -138,6 +166,31 @@ def test_load_run_returns_persisted(tmp_path: Path) -> None:
     assert reloaded.status == "completed"
     assert reloaded.case_dir == result.case_dir
     assert reloaded.manifest_digest == result.manifest_digest
+
+
+def test_load_run_restores_solve_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from aerosynthx.workflow import pipeline as pipe_mod
+
+    monkeypatch.setattr(pipe_mod, "openfoam_available", lambda: True)
+    holder: dict[str, Path] = {}
+    pipe = Pipeline(out_root=tmp_path, command_runner=_coeff_runner(holder))
+    result = pipe.run(_GOOD_INTENT, execute=True)
+    reloaded = load_run(pipe.db_path, result.run_id)
+
+    assert reloaded is not None
+    assert reloaded.solve_result is not None
+    assert reloaded.solve_result.ran is True
+    assert reloaded.solve_result.converged is True
+
+
+def test_load_run_ignores_corrupt_solve_json(tmp_path: Path) -> None:
+    pipe = Pipeline(out_root=tmp_path)
+    result = pipe.run(_GOOD_INTENT)
+    assert result.case_dir is not None
+    (result.case_dir.parent / "solve.json").write_text("{not json", encoding="utf-8")
+    reloaded = load_run(pipe.db_path, result.run_id)
+    assert reloaded is not None
+    assert reloaded.solve_result is None
 
 
 def test_query_runs_missing_db_is_empty(tmp_path: Path) -> None:

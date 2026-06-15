@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -25,6 +27,10 @@ class RunRequest(BaseModel):
         default=None,
         gt=0,
         description="Optional wall-clock budget in seconds; the run fails fast once exceeded.",
+    )
+    analysis_mode: Literal["openfoam", "xfoil"] = Field(
+        default="openfoam",
+        description="The backend to use for aerodynamic analysis.",
     )
 
 

@@ -27,6 +27,7 @@
       <p><strong>Status:</strong>
         <span class="status-${result.status}">${result.status}</span></p>
       ${result.case_dir ? `<p><strong>Case:</strong> <code>${result.case_dir}</code></p>` : ""}
+      <p><a href="/api/v1/runs/${result.run_id}/report" target="_blank" rel="noopener">Download report</a></p>
     `;
     const tbody = $("#stages tbody");
     tbody.innerHTML = "";
@@ -74,6 +75,7 @@
         <td class="status-${row.status}">${row.status}</td>
         <td>${row.created_at_iso}</td>
         <td>${row.intent_text}</td>
+        <td><a href="/api/v1/runs/${row.run_id}/report" target="_blank" rel="noopener">Report</a></td>
       `;
       tr.querySelector("a").addEventListener("click", async (e) => {
         e.preventDefault();

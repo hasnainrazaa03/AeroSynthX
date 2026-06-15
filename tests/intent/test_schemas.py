@@ -17,25 +17,64 @@ from aerosynthx.intent.schemas import (
 # ----------------------------------------------------------- AirfoilSpec
 
 
-def test_airfoil_spec_valid() -> None:
+def test_airfoil_spec_naca4_valid() -> None:
     s = AirfoilSpec(family="naca4", designation="2412", chord_m=1.0)
     assert s.designation == "2412"
+    assert s.coordinates is None
+
+
+def test_airfoil_spec_naca5_valid() -> None:
+    s = AirfoilSpec(family="naca5", designation="23012", chord_m=1.0)
+    assert s.designation == "23012"
+    assert s.coordinates is None
+
+
+def test_airfoil_spec_custom_valid() -> None:
+    s = AirfoilSpec(family="custom", chord_m=1.0, coordinates=[(1.0, 0.0), (0.0, 0.0), (1.0, 0.0)])
+    assert s.designation is None
+    assert s.coordinates == [(1.0, 0.0), (0.0, 0.0), (1.0, 0.0)]
+
+
+def test_airfoil_spec_custom_rejects_missing_coordinates() -> None:
+    with pytest.raises(ValidationError, match="`coordinates` must be provided"):
+        AirfoilSpec(family="custom", chord_m=1.0)
+
+
+def test_airfoil_spec_custom_rejects_designation() -> None:
+    with pytest.raises(ValidationError, match="`designation` must not be provided"):
+        AirfoilSpec(family="custom", designation="1234", chord_m=1.0, coordinates=[(1.0, 0.0), (0.0, 0.0), (1.0, 0.0)])
+
+
+def test_airfoil_spec_naca_rejects_coordinates() -> None:
+    with pytest.raises(ValidationError, match="`coordinates` must not be provided"):
+        AirfoilSpec(family="naca4", designation="2412", chord_m=1.0, coordinates=[(1.0, 0.0)])
 
 
 @pytest.mark.parametrize("bad", ["", "241", "12345", "abcd", "24a2"])
-def test_airfoil_spec_rejects_bad_designation(bad: str) -> None:
+def test_airfoil_spec_naca4_rejects_bad_designation(bad: str) -> None:
     with pytest.raises(ValidationError):
         AirfoilSpec(family="naca4", designation=bad, chord_m=1.0)
 
 
-def test_airfoil_spec_rejects_camber_without_position() -> None:
+@pytest.mark.parametrize("bad", ["", "2301", "123456", "abcde", "23a12"])
+def test_airfoil_spec_naca5_rejects_bad_designation(bad: str) -> None:
+    with pytest.raises(ValidationError):
+        AirfoilSpec(family="naca5", designation=bad, chord_m=1.0)
+
+
+def test_airfoil_spec_naca4_rejects_camber_without_position() -> None:
     with pytest.raises(ValidationError):
         AirfoilSpec(family="naca4", designation="2012", chord_m=1.0)
 
 
-def test_airfoil_spec_rejects_zero_thickness() -> None:
+def test_airfoil_spec_naca4_rejects_zero_thickness() -> None:
     with pytest.raises(ValidationError):
         AirfoilSpec(family="naca4", designation="0000", chord_m=1.0)
+
+
+def test_airfoil_spec_naca5_rejects_zero_thickness() -> None:
+    with pytest.raises(ValidationError):
+        AirfoilSpec(family="naca5", designation="23000", chord_m=1.0)
 
 
 def test_airfoil_spec_rejects_non_positive_chord() -> None:
@@ -45,7 +84,7 @@ def test_airfoil_spec_rejects_non_positive_chord() -> None:
 
 def test_airfoil_spec_rejects_unknown_family() -> None:
     with pytest.raises(ValidationError):
-        AirfoilSpec(family="naca5", designation="23012", chord_m=1.0)  # type: ignore[arg-type]
+        AirfoilSpec(family="naca6", designation="64012", chord_m=1.0)  # type: ignore[arg-type]
 
 
 def test_airfoil_spec_is_frozen() -> None:

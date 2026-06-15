@@ -39,6 +39,7 @@ from aerosynthx.workflow.pipeline import (
     query_runs,
 )
 from aerosynthx.workflow.progress import ProgressEvent, ProgressSink
+from aerosynthx.workflow.report import render_run_report
 from aerosynthx.workflow.retention import GarbageCollectResult, PruneResult
 from aerosynthx.workflow.stages import STAGE_ORDER, StageName
 
@@ -75,4 +76,5 @@ __all__ = [
     "main",
     "open_session",
     "query_runs",
+    "render_run_report",
 ]

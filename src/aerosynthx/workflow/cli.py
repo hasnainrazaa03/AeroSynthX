@@ -12,6 +12,7 @@ from pathlib import Path
 from aerosynthx.workflow.errors import RunNotFoundError, StageError
 from aerosynthx.workflow.pipeline import Pipeline, RunResult, load_run
 from aerosynthx.workflow.progress import ProgressEvent
+from aerosynthx.workflow.report import render_run_report
 
 _LOG = logging.getLogger("aerosynthx.cli")
 
@@ -40,6 +41,12 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         type=Path,
         help="Output directory; created if absent.",
+    )
+    run_p.add_argument(
+        "--mode",
+        choices=["openfoam", "xfoil"],
+        default="openfoam",
+        help="Analysis mode to run.",
     )
     run_p.add_argument(
         "--no-resume",
@@ -75,6 +82,16 @@ def _build_parser() -> argparse.ArgumentParser:
     delete_p = sub.add_parser("delete", help="Delete a persisted run and its artifacts.")
     delete_p.add_argument("run_id", help="Run id returned by `run`.")
     delete_p.add_argument("--out", required=True, type=Path, help="Output directory used by `run`.")
+
+    report_p = sub.add_parser("report", help="Write a standalone HTML report for a run.")
+    report_p.add_argument("run_id", help="Run id returned by `run`.")
+    report_p.add_argument("--out", required=True, type=Path, help="Output directory used by `run`.")
+    report_p.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="File to write the HTML report to; defaults to stdout.",
+    )
 
     prune_p = sub.add_parser("prune", help="Prune old runs and reclaim store blobs.")
     prune_p.add_argument("--out", required=True, type=Path, help="Output directory used by runs.")
@@ -160,6 +177,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             execute=args.execute,
             timeout=args.timeout,
             on_event=_progress_to_stderr if args.progress else None,
+            analysis_mode=args.mode,
         )
     except StageError as exc:
         _LOG.error("stage %s failed: %s", exc.stage, exc)
@@ -182,6 +200,20 @@ def _cmd_delete(args: argparse.Namespace) -> int:
     if not pipeline.delete_run(args.run_id):
         raise RunNotFoundError(f"no run with id {args.run_id!r} in {pipeline.db_path}")
     sys.stdout.write(f"deleted run {args.run_id}\n")
+    return 0
+
+
+def _cmd_report(args: argparse.Namespace) -> int:
+    db_path = args.out / "aerosynthx.db"
+    result = load_run(db_path, args.run_id)
+    if result is None:
+        raise RunNotFoundError(f"no run with id {args.run_id!r} in {db_path}")
+    html_doc = render_run_report(result)
+    if args.output is not None:
+        args.output.write_text(html_doc, encoding="utf-8")
+        sys.stdout.write(f"wrote report to {args.output}\n")
+    else:
+        sys.stdout.write(html_doc)
     return 0
 
 
@@ -236,6 +268,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_show(args)
     if args.command == "delete":
         return _cmd_delete(args)
+    if args.command == "report":
+        return _cmd_report(args)
     if args.command == "prune":
         return _cmd_prune(args)
     if args.command == "relink":

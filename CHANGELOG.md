@@ -13,6 +13,23 @@ policy.
 ### Added
 - (nothing yet)
 
+## [1.15.0] - 2026-06-11
+
+### Added
+- Phase 22: standalone HTML run reports with inline SVG physics charts, with
+  zero new runtime dependencies.
+  - New `aerosynthx.workflow.report.render_run_report()` renders a
+    self-contained HTML document: stage-duration bars, design-intent and
+    flow-condition tables, derived-aerodynamics bars (Re, Mach, turbulence
+    intensity), and force-coefficient bars (Cl/Cd/Cm) when the solver ran.
+  - `load_run` restores `solve_result` from `<run_dir>/solve.json` so
+    reports reflect persisted solver output.
+  - New `aerosynthx report RUN_ID --out DIR [--output FILE]` CLI subcommand
+    and `GET /api/v1/runs/{run_id}/report` endpoint (read scope) serve the
+    HTML report.
+  - The static UI adds Report links in run history and a Download report
+    link on the result panel.
+
 ## [1.14.0] - 2026-05-31
 
 ### Added
@@ -475,7 +492,8 @@ policy.
 - Pre-commit hooks, `.gitignore`, `.gitattributes`, `.editorconfig`,
   `.env.example`.
 
-[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.14.0...HEAD
+[Unreleased]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.15.0...HEAD
+[1.15.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.14.0...v1.15.0
 [1.14.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/hasnainrazaa03/AeroSynthX/compare/v1.11.0...v1.12.0

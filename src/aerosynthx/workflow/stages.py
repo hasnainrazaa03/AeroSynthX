@@ -14,6 +14,7 @@ class StageName(StrEnum):
     GEOMETRY = "geometry"
     CASE = "case"
     SOLVE = "solve"
+    XFOIL = "xfoil"
     PERSIST = "persist"
 
 

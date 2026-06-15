@@ -83,3 +83,4 @@ constant/polyMesh/
 0/uniform/
 *.foam
 log.*
+.aider*

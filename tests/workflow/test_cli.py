@@ -72,6 +72,34 @@ def test_delete_missing_run_raises(tmp_path: Path) -> None:
         main(["delete", "ffffffffffffffff", "--out", str(tmp_path)])
 
 
+def test_report_subcommand_writes_stdout(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
+    run_id = str(_capture(capsys)["run_id"])
+
+    assert main(["report", run_id, "--out", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("<!DOCTYPE html>")
+    assert "Stage durations" in out
+
+
+def test_report_subcommand_writes_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
+    run_id = str(_capture(capsys)["run_id"])
+    output = tmp_path / "report.html"
+
+    assert main(["report", run_id, "--out", str(tmp_path), "--output", str(output)]) == 0
+    assert f"wrote report to {output}" in capsys.readouterr().out
+    assert output.read_text(encoding="utf-8").startswith("<!DOCTYPE html>")
+
+
+def test_report_missing_run_raises(tmp_path: Path) -> None:
+    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
+    with pytest.raises(RunNotFoundError):
+        main(["report", "ffffffffffffffff", "--out", str(tmp_path)])
+
+
 def test_prune_subcommand_trims_and_gcs(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
     capsys.readouterr()

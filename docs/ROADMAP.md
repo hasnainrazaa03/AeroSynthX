@@ -1,6 +1,6 @@
 # AeroSynthX — Roadmap
 
-Status: Living document (current release `v1.14.0`).
+Status: Living document (current release `v1.18.0`).
 This roadmap defines phases, milestones, acceptance criteria, and the
 dependencies between them. It is the source of truth for sequencing.
 For the post-v1.2.0 feature backlog, see
@@ -52,7 +52,11 @@ release, (d) an updated `CHANGELOG.md`.
 | 19 | Automatic retention & cleanup (prune runs + blob GC) | Shipped (`v1.12.0`) |
 | 20 | Run-list pagination, filtering & full-text search | Shipped (`v1.13.0`) |
 | 21 | Relink run dirs to store blobs (hard links) | Shipped (`v1.14.0`) |
-| 21+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
+| 22 | Run reports with physics charts | Shipped (`v1.15.0`) |
+| 23 | Geometry engine (NACA 5-digit) | Shipped (`v1.16.0`) |
+| 24 | User-supplied airfoil support | Shipped (`v1.17.0`) |
+| 25 | XFOIL integration | Shipped (`v1.18.0`) |
+| 25+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
 
 Each phase has a dedicated checklist file under `docs/phases/`.
 
@@ -305,14 +309,14 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 - [ ] **P2** Reynolds-dependent drag polars (replace flat estimates).
 - [ ] **P3** Altitudes above 20 km (mesosphere atmosphere model).
 - [ ] **P3** Transonic / supersonic regimes (shock-aware Cd).
-- [ ] **P3** Panel-method / XFOIL integration for higher-fidelity Cl/Cd.
+- [x] **P3** Panel-method / XFOIL integration for higher-fidelity Cl/Cd (Phase 25, `v1.18.0`).
 
 ### Geometry
 
-- [ ] **P2** NACA 5-digit airfoil family generator.
+- [x] **P2** NACA 5-digit airfoil family generator (Phase 23, `v1.16.0`).
 - [ ] **P2** 3D wing builder (taper, sweep, dihedral, twist).
 - [ ] **P3** STL / STEP export of generated surfaces.
-- [ ] **P3** Geometry upload endpoint (user-supplied airfoils).
+- [x] **P3** Geometry upload endpoint (user-supplied airfoils) (Phase 24, `v1.17.0`).
 
 ### OpenFOAM execution
 
@@ -356,7 +360,9 @@ them to a `docs/phases/PHASE_N.md` when picked up.
   `v1.13.0`; `offset`/`status`/`q` query params + `X-Total-Count` header,
   UI search box and Prev/Next paging).
 - [x] **P2** `DELETE /api/v1/runs/{id}` endpoint (Phase 14, `v1.7.0`).
-- [ ] **P2** Charts of physics results + downloadable report in the UI.
+- [x] **P2** Charts of physics results + downloadable report in the UI
+      (Phase 22, `v1.15.0`; standalone HTML report with inline SVG charts,
+      `aerosynthx report`, `GET /api/v1/runs/{id}/report`, UI links).
 - [ ] **P2** Generated typed client (OpenAPI → TS/Python SDK).
 - [ ] **P3** SPA upgrade (React/Vue) once the vanilla bundle outgrows.
 - [ ] **P3** Dark mode + accessibility audit.
@@ -379,10 +385,9 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 
 ### Suggested next phase
 
-**Phase 21 — relink run directories to store blobs** shipped in `v1.14.0`:
-`Pipeline.relink_runs()` hard-links surviving run files into the
-content-addressed store (`relink` CLI + `POST /api/v1/maintenance/relink`),
-reclaiming the disk duplicated between run trees and blobs. The strongest
-remaining candidates are **charts of physics results + a downloadable report
-in the UI** (under *API & UI*) and **OpenTelemetry tracing** (spans per stage
-+ HTTP, under *Observability*).
+**Phase 22 — run reports with physics charts** shipped in `v1.15.0`:
+`render_run_report()` turns a persisted :class:`RunResult` into a standalone
+HTML document with stage-timing, derived-aerodynamics, and force-coefficient
+charts (`aerosynthx report`, `GET /api/v1/runs/{id}/report`, UI report
+links). The strongest remaining candidate is **OpenTelemetry tracing** (spans
+per stage + HTTP, under *Observability*).

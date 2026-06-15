@@ -28,6 +28,7 @@ from aerosynthx.intent import LLMClient
 from aerosynthx.observability import METRICS, bind_correlation_id, render_prometheus
 from aerosynthx.workflow.errors import StageError
 from aerosynthx.workflow.pipeline import Pipeline, load_run, query_runs
+from aerosynthx.workflow.report import render_run_report
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -172,6 +173,7 @@ def create_app(
                 resume=body.resume,
                 execute=body.execute,
                 timeout=body.timeout_seconds,
+                analysis_mode=body.analysis_mode,
             )
         except StageError as exc:
             raise HTTPException(
@@ -237,6 +239,21 @@ def create_app(
                 detail=f"no run with id {run_id!r}",
             )
         return result.to_json()
+
+    @app.get(
+        "/api/v1/runs/{run_id}/report",
+        tags=["runs"],
+        dependencies=[auth_read],
+        response_class=HTMLResponse,
+    )
+    def get_run_report(run_id: str) -> HTMLResponse:
+        result = load_run(pipeline.db_path, run_id)
+        if result is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"no run with id {run_id!r}",
+            )
+        return HTMLResponse(content=render_run_report(result))
 
     @app.get("/api/v1/runs/{run_id}/events", tags=["runs"], dependencies=[auth_read])
     def stream_run_events(run_id: str) -> StreamingResponse:

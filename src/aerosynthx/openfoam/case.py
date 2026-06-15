@@ -41,8 +41,10 @@ from jinja2 import (
     select_autoescape,
 )
 
+from aerosynthx.geometry.custom import custom_airfoil
 from aerosynthx.geometry.exporters import to_selig_dat
 from aerosynthx.geometry.naca4 import naca4
+from aerosynthx.geometry.naca5 import naca5
 from aerosynthx.intent.schemas import DesignIntent
 from aerosynthx.openfoam.errors import (
     CaseExistsError,
@@ -114,9 +116,9 @@ def _make_env() -> Environment:
 
 
 def _envelope_guard(intent: DesignIntent) -> None:
-    if intent.airfoil.family != "naca4":
+    if intent.airfoil.family not in ("naca4", "naca5", "custom"):
         raise EnvelopeViolationError(
-            f"only NACA 4-digit airfoils are supported, got {intent.airfoil.family!r}",
+            f"only NACA 4-digit, 5-digit, and custom airfoils are supported, got {intent.airfoil.family!r}",
         )
     if intent.flow.velocity_m_s is None and intent.flow.mach is None:
         raise EnvelopeViolationError(
@@ -190,10 +192,21 @@ def _render_templates(env: Environment, ctx: Mapping[str, str], output_dir: Path
 
 
 def _write_airfoil(intent: DesignIntent, output_dir: Path) -> str:
-    airfoil = naca4(
-        intent.airfoil.designation,
-        chord_m=float(intent.airfoil.chord_m),
-    )
+    if intent.airfoil.family == "custom":
+        airfoil = custom_airfoil(
+            intent.airfoil.coordinates,
+            chord_m=float(intent.airfoil.chord_m),
+        )
+    elif intent.airfoil.family == "naca5":
+        airfoil = naca5(
+            intent.airfoil.designation,
+            chord_m=float(intent.airfoil.chord_m),
+        )
+    else:  # naca4
+        airfoil = naca4(
+            intent.airfoil.designation,
+            chord_m=float(intent.airfoil.chord_m),
+        )
     content = to_selig_dat(airfoil)
     return _write_text(
         output_dir / "constant" / "triSurface" / "airfoil.dat",

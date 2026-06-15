@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from sqlalchemy import ForeignKey, String, create_engine
+from sqlalchemy import Float, ForeignKey, String, create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -42,6 +42,11 @@ class RunRow(Base):
         cascade="all, delete-orphan",
         order_by="StageRow.ordinal",
     )
+    xfoil_result: Mapped[XfoilResultRow | None] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
 
 class StageRow(Base):
@@ -59,6 +64,21 @@ class StageRow(Base):
     error: Mapped[str | None] = mapped_column(String, nullable=True)
 
     run: Mapped[RunRow] = relationship(back_populates="stages")
+
+
+class XfoilResultRow(Base):
+    """One row per successful XFOIL analysis."""
+
+    __tablename__ = "xfoil_results"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), index=True, unique=True)
+    alpha_deg: Mapped[float] = mapped_column(Float)
+    cl: Mapped[float] = mapped_column(Float)
+    cd: Mapped[float] = mapped_column(Float)
+    cm: Mapped[float] = mapped_column(Float)
+
+    run: Mapped[RunRow] = relationship(back_populates="xfoil_result")
 
 
 def _engine_for(path: Path) -> Engine:

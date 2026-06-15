@@ -22,6 +22,9 @@ from typing import Any, Final, Literal
 
 from sqlalchemy import func, select
 
+from aerosynthx.geometry.custom import custom_airfoil
+from aerosynthx.geometry.naca4 import naca4
+from aerosynthx.geometry.naca5 import naca5
 from aerosynthx.intent import (
     DesignIntent,
     IntentError,
@@ -45,7 +48,7 @@ from aerosynthx.openfoam import (
 )
 from aerosynthx.workflow.artifacts import ContentAddressedStore, RelinkResult
 from aerosynthx.workflow.cancellation import CancellationToken, RunControl
-from aerosynthx.workflow.db import RunRow, StageRow, open_session
+from aerosynthx.workflow.db import RunRow, StageRow, XfoilResultRow, open_session
 from aerosynthx.workflow.errors import StageError
 from aerosynthx.workflow.locking import DEFAULT_RUN_LOCKS, RunLockRegistry
 from aerosynthx.workflow.progress import ProgressEvent, ProgressSink
@@ -56,6 +59,7 @@ from aerosynthx.workflow.retention import (
     PruneResult,
 )
 from aerosynthx.workflow.stages import STAGE_ORDER, StageName
+from aerosynthx.xfoil import XfoilError, XfoilResult, run_xfoil
 
 _LOG = logging.getLogger("aerosynthx.workflow")
 
@@ -125,8 +129,8 @@ def _normalise_text(text: str) -> str:
     return " ".join(text.split())
 
 
-def _run_id_for(intent_text: str) -> str:
-    digest = hashlib.sha256(_normalise_text(intent_text).encode("utf-8")).hexdigest()
+def _run_id_for(intent_text: str, mode: str = "openfoam") -> str:
+    digest = hashlib.sha256(f"{_normalise_text(intent_text)}::{mode}".encode("utf-8")).hexdigest()
     return digest[:16]
 
 
@@ -159,6 +163,7 @@ class RunResult:
     manifest_digest: str | None
     stages: tuple[StageResult, ...]
     solve_result: SolveResult | None = None
+    xfoil_result: XfoilResult | None = None
 
     def to_json(self) -> dict[str, Any]:
         """Render as a JSON-serialisable dict."""
@@ -172,6 +177,7 @@ class RunResult:
             "manifest_digest": self.manifest_digest,
             "stages": [asdict(s) for s in self.stages],
             "solve": _solve_dict(self.solve_result) if self.solve_result else None,
+            "xfoil": asdict(self.xfoil_result) if self.xfoil_result else None,
         }
 
 
@@ -184,6 +190,27 @@ def _solve_dict(state: SolveResult) -> dict[str, Any]:
         "coefficients": state.coefficients,
         "commands": list(state.commands),
     }
+
+
+def _load_solve_result(case_dir: Path | None) -> SolveResult | None:
+    """Return the persisted :class:`SolveResult` for a run, if present."""
+    if case_dir is None:
+        return None
+    solve_path = case_dir.parent / "solve.json"
+    if not solve_path.is_file():
+        return None
+    try:
+        data = json.loads(solve_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return SolveResult(
+        ran=bool(data["ran"]),
+        converged=bool(data["converged"]),
+        iterations=int(data["iterations"]),
+        final_residual=data.get("final_residual"),
+        coefficients=dict(data.get("coefficients", {})),
+        commands=tuple(data.get("commands", ())),
+    )
 
 
 def _flow_state_dict(state: FlowState) -> dict[str, Any]:
@@ -425,6 +452,7 @@ class Pipeline:
         timeout: float | None = None,
         cancel_token: CancellationToken | None = None,
         on_event: ProgressSink | None = None,
+        analysis_mode: Literal["openfoam", "xfoil"] = "openfoam",
     ) -> RunResult:
         """Execute every pipeline stage for ``intent_text``.
 
@@ -435,7 +463,7 @@ class Pipeline:
                 re-executing any stage. Ignored when ``execute`` is true.
             execute: If true, run the generated case through the OpenFOAM
                 solver (when the toolchain is available). Execution always
-                runs fresh, bypassing the resume cache.
+                runs fresh, bypassing the resume cache. (Ignored for xfoil mode)
             timeout: Optional wall-clock budget in seconds. When exceeded,
                 the in-flight stage fails fast and the run finalises as
                 ``"failed"`` with a ``workflow.run.timeout`` stage error.
@@ -446,6 +474,8 @@ class Pipeline:
                 boundary (``stage_started`` / ``stage_finished``) and once
                 when the run finishes (``run_finished``). Ignored for runs
                 served from the resume cache.
+            analysis_mode: The backend to use for aerodynamic analysis.
+                Defaults to "openfoam".
 
         Returns:
             A :class:`RunResult`. Stage-level failures are captured in
@@ -460,8 +490,8 @@ class Pipeline:
             )
 
         control = RunControl.create(timeout=timeout, cancel_token=cancel_token, clock=self._clock)
-        run_id = _run_id_for(intent_text)
-        if resume and not execute:
+        run_id = _run_id_for(intent_text, analysis_mode)
+        if resume and not (execute and analysis_mode == "openfoam"):
             cached = self._maybe_resume(run_id)
             if cached is not None:
                 _LOG.info("resume.hit run_id=%s", run_id)
@@ -471,7 +501,7 @@ class Pipeline:
         # intent do not race the shared run directory and DB row. Distinct
         # run_ids never contend.
         with self._locks.acquire(run_id):
-            if resume and not execute:
+            if resume and not (execute and analysis_mode == "openfoam"):
                 # Double-checked: a peer may have finished while we waited.
                 cached = self._maybe_resume(run_id)
                 if cached is not None:
@@ -479,7 +509,7 @@ class Pipeline:
                     return cached
             with bind_correlation_id(run_id):
                 return self._run_uncached(
-                    run_id, intent_text, execute=execute, control=control, on_event=on_event
+                    run_id, intent_text, execute=execute, control=control, on_event=on_event, analysis_mode=analysis_mode
                 )
 
     def _run_uncached(
@@ -490,9 +520,12 @@ class Pipeline:
         execute: bool = False,
         control: RunControl,
         on_event: ProgressSink | None = None,
+        analysis_mode: Literal["openfoam", "xfoil"] = "openfoam",
     ) -> RunResult:
         emit = _make_emitter(run_id, on_event)
-        result = self._execute_run(run_id, intent_text, execute=execute, control=control, emit=emit)
+        result = self._execute_run(
+            run_id, intent_text, execute=execute, control=control, emit=emit, analysis_mode=analysis_mode
+        )
         emit("run_finished", None, result.status, None)
         return result
 
@@ -504,6 +537,7 @@ class Pipeline:
         execute: bool = False,
         control: RunControl,
         emit: _Emit,
+        analysis_mode: Literal["openfoam", "xfoil"] = "openfoam",
     ) -> RunResult:
         run_dir = self._out_root / "runs" / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -514,6 +548,7 @@ class Pipeline:
         manifest: CaseManifest | None = None
         case_dir: Path | None = None
         solve_result: SolveResult | None = None
+        xfoil_result: XfoilResult | None = None
 
         # --- parse -------------------------------------------------
         with _timed(StageName.PARSE, emit) as record:
@@ -526,7 +561,7 @@ class Pipeline:
                 record["error"] = str(exc)
         stages.append(record["result"])
         if record["result"].status == "failed":
-            return self._finalise(run_id, intent_text, "failed", stages, None, None, None, None)
+            return self._finalise(run_id, intent_text, "failed", stages, None, None, None, None, None)
 
         # --- compute -----------------------------------------------
         with _timed(StageName.COMPUTE, emit) as record:
@@ -539,7 +574,7 @@ class Pipeline:
                 record["error"] = str(exc)
         stages.append(record["result"])
         if record["result"].status == "failed":
-            return self._finalise(run_id, intent_text, "failed", stages, intent, None, None, None)
+            return self._finalise(run_id, intent_text, "failed", stages, intent, None, None, None, None)
 
         # --- geometry ---------------------------------------------
         # build_case re-generates geometry; we still record a stage so
@@ -548,32 +583,42 @@ class Pipeline:
             control.check(StageName.GEOMETRY.value)
             assert intent is not None
             record["digest"] = hashlib.sha256(
-                intent.airfoil.designation.encode("utf-8")
+                intent.airfoil.designation.encode("utf-8") if intent.airfoil.designation else "custom".encode("utf-8")
             ).hexdigest()
         stages.append(record["result"])
 
-        # --- case --------------------------------------------------
-        case_dir = run_dir / "case"
-        with _timed(StageName.CASE, emit) as record:
-            control.check(StageName.CASE.value)
-            try:
-                assert intent is not None
-                manifest = build_case(intent, case_dir, overwrite=True)
-                record["digest"] = _sha256_of_json(manifest.files)
-                self._artifact_store.archive_case(case_dir, manifest.files)
-            except OpenFoamError as exc:
-                record["error"] = str(exc)
-        stages.append(record["result"])
-        if record["result"].status == "failed":
-            return self._finalise(run_id, intent_text, "failed", stages, intent, flow, None, None)
+        if analysis_mode == "openfoam":
+            # --- case --------------------------------------------------
+            case_dir = run_dir / "case"
+            with _timed(StageName.CASE, emit) as record:
+                control.check(StageName.CASE.value)
+                try:
+                    assert intent is not None
+                    manifest = build_case(intent, case_dir, overwrite=True)
+                    record["digest"] = _sha256_of_json(manifest.files)
+                    self._artifact_store.archive_case(case_dir, manifest.files)
+                except OpenFoamError as exc:
+                    record["error"] = str(exc)
+            stages.append(record["result"])
+            if record["result"].status == "failed":
+                return self._finalise(run_id, intent_text, "failed", stages, intent, flow, None, None, None)
 
-        # --- solve (opt-in) ---------------------------------------
-        if execute:
-            assert case_dir is not None
-            solve_result = self._solve_stage(case_dir, run_dir, stages, control, emit)
+            # --- solve (opt-in) ---------------------------------------
+            if execute:
+                assert case_dir is not None
+                solve_result = self._solve_stage(case_dir, run_dir, stages, control, emit)
+                if stages[-1].status == "failed":
+                    return self._finalise(
+                        run_id, intent_text, "failed", stages, intent, flow, case_dir, None, None
+                    )
+        elif analysis_mode == "xfoil":
+            # --- xfoil -------------------------------------------------
+            assert intent is not None
+            assert flow is not None
+            xfoil_result = self._xfoil_stage(intent, stages, control, emit)
             if stages[-1].status == "failed":
                 return self._finalise(
-                    run_id, intent_text, "failed", stages, intent, flow, case_dir, None
+                    run_id, intent_text, "failed", stages, intent, flow, None, None, None
                 )
 
         # --- persist -----------------------------------------------
@@ -588,6 +633,7 @@ class Pipeline:
                 case_dir=case_dir,
                 manifest_digest=manifest_digest,
                 stages_so_far=stages,
+                xfoil_result=xfoil_result,
             )
             record["digest"] = manifest_digest
         stages.append(record["result"])
@@ -602,6 +648,7 @@ class Pipeline:
             case_dir=case_dir,
             manifest_digest=manifest_digest,
             stages_so_far=stages,
+            xfoil_result=xfoil_result,
         )
 
         result = RunResult(
@@ -614,6 +661,7 @@ class Pipeline:
             manifest_digest=manifest_digest,
             stages=tuple(stages),
             solve_result=solve_result,
+            xfoil_result=xfoil_result,
         )
         (run_dir / "run.json").write_text(
             json.dumps(result.to_json(), indent=2, sort_keys=True) + "\n",
@@ -663,6 +711,33 @@ class Pipeline:
             )
         return solve_result
 
+    def _xfoil_stage(
+        self,
+        intent: DesignIntent,
+        stages: list[StageResult],
+        control: RunControl,
+        emit: _Emit = _noop_emit,
+    ) -> XfoilResult | None:
+        """Run the XFOIL analysis stage, appending its :class:`StageResult`."""
+        xfoil_result: XfoilResult | None = None
+        with _timed(StageName.XFOIL, emit) as record:
+            control.check(StageName.XFOIL.value)
+            try:
+                # Need to generate the airfoil first
+                if intent.airfoil.family == "custom":
+                    airfoil = custom_airfoil(intent.airfoil.coordinates, chord_m=float(intent.airfoil.chord_m))
+                elif intent.airfoil.family == "naca5":
+                    airfoil = naca5(intent.airfoil.designation, chord_m=float(intent.airfoil.chord_m))
+                else:
+                    airfoil = naca4(intent.airfoil.designation, chord_m=float(intent.airfoil.chord_m))
+
+                xfoil_result = run_xfoil(airfoil, intent.flow)
+                record["digest"] = _sha256_of_json(asdict(xfoil_result))
+            except XfoilError as exc:
+                record["error"] = str(exc)
+        stages.append(record["result"])
+        return xfoil_result
+
     # ------------------------------------------------------------------
     # Internal helpers
 
@@ -686,6 +761,7 @@ class Pipeline:
         case_dir: Path | None,
         manifest_digest: str | None,
         stages_so_far: list[StageResult],
+        xfoil_result: XfoilResult | None = None,
     ) -> None:
         now_iso = datetime.now(tz=UTC).isoformat(timespec="seconds")
         with open_session(self._db_path) as session:
@@ -693,6 +769,16 @@ class Pipeline:
             if existing is not None:
                 session.delete(existing)
                 session.flush()
+
+            xfoil_row = None
+            if xfoil_result is not None:
+                xfoil_row = XfoilResultRow(
+                    alpha_deg=xfoil_result.alpha_deg,
+                    cl=xfoil_result.cl,
+                    cd=xfoil_result.cd,
+                    cm=xfoil_result.cm,
+                )
+
             row = RunRow(
                 id=run_id,
                 intent_text=intent_text,
@@ -720,6 +806,7 @@ class Pipeline:
                     )
                     for i, s in enumerate(stages_so_far)
                 ],
+                xfoil_result=xfoil_row,
             )
             session.add(row)
 
@@ -733,11 +820,15 @@ class Pipeline:
         flow: FlowState | None,
         case_dir: Path | None,
         manifest_digest: str | None,
+        xfoil_result: XfoilResult | None,
     ) -> RunResult:
         # Mark any stages that never ran as pending.
         executed = {s.name for s in stages}
+        # In a generic way, mark remaining stages as pending based on the chosen mode.
+        # But STAGE_ORDER is fixed. We will just look at what's in the actual stages list.
+        # For simplicity, we just mark STAGE_ORDER stages as pending if they are missing.
         for stage in STAGE_ORDER:
-            if stage.value not in executed:
+            if stage.value not in executed and stage.value != StageName.XFOIL.value:
                 stages.append(
                     StageResult(
                         name=stage.value,
@@ -758,6 +849,7 @@ class Pipeline:
                 case_dir=case_dir,
                 manifest_digest=manifest_digest,
                 stages_so_far=stages,
+                xfoil_result=xfoil_result,
             )
         except Exception:  # pragma: no cover - defensive
             _LOG.exception("failed to persist failed run %s", run_id)
@@ -771,6 +863,7 @@ class Pipeline:
             case_dir=case_dir,
             manifest_digest=manifest_digest,
             stages=tuple(stages),
+            xfoil_result=xfoil_result,
         )
 
 
@@ -871,15 +964,28 @@ def _row_to_result(row: RunRow) -> RunResult:
         )
         for s in row.stages
     )
+    case_dir = Path(row.case_dir) if row.case_dir else None
+
+    xfoil_result = None
+    if row.xfoil_result:
+        xfoil_result = XfoilResult(
+            alpha_deg=row.xfoil_result.alpha_deg,
+            cl=row.xfoil_result.cl,
+            cd=row.xfoil_result.cd,
+            cm=row.xfoil_result.cm,
+        )
+
     return RunResult(
         run_id=row.id,
         intent_text=row.intent_text,
         status=row.status,  # type: ignore[arg-type]
         intent=intent,
         flow_state=flow_state,
-        case_dir=Path(row.case_dir) if row.case_dir else None,
+        case_dir=case_dir,
         manifest_digest=row.manifest_digest,
         stages=stages,
+        solve_result=_load_solve_result(case_dir),
+        xfoil_result=xfoil_result,
     )
 
 

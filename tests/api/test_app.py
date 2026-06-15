@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from aerosynthx import __version__
 from aerosynthx.api import create_app
+from aerosynthx.xfoil import XfoilResult
 
 _GOOD = "NACA 2412 at 50 m/s, alpha 3 deg, chord 1.0 m."
 _OTHER = "NACA 2412 at 65 m/s, alpha 3 deg, chord 1.0 m."
@@ -39,6 +41,18 @@ def test_create_run_happy(client: TestClient) -> None:
     assert body["status"] == "completed"
     assert body["run_id"]
     assert len(body["stages"]) == 5
+
+
+@patch("aerosynthx.workflow.pipeline.run_xfoil")
+def test_create_run_xfoil_mode(mock_run_xfoil, client: TestClient) -> None:
+    """Test that the xfoil analysis mode can be triggered via the API."""
+    mock_run_xfoil.return_value = XfoilResult(alpha_deg=3.0, cl=0.5, cd=0.01, cm=-0.02)
+    r = client.post("/api/v1/runs", json={"intent_text": _GOOD, "analysis_mode": "xfoil"})
+    assert r.status_code == 201
+    body = r.json()
+    assert body["status"] == "completed"
+    assert body["xfoil"] is not None
+    assert body["xfoil"]["cl"] == 0.5
 
 
 def test_create_run_failed_status_is_201_with_failed_body(client: TestClient) -> None:
@@ -153,6 +167,22 @@ def test_get_run(client: TestClient) -> None:
 
 def test_get_run_404(client: TestClient) -> None:
     r = client.get("/api/v1/runs/0000000000000000")
+    assert r.status_code == 404
+
+
+def test_get_run_report(client: TestClient) -> None:
+    created = client.post("/api/v1/runs", json={"intent_text": _GOOD}).json()
+    r = client.get(f"/api/v1/runs/{created['run_id']}/report")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    body = r.text
+    assert body.startswith("<!DOCTYPE html>")
+    assert "Stage durations" in body
+    assert created["run_id"] in body
+
+
+def test_get_run_report_404(client: TestClient) -> None:
+    r = client.get("/api/v1/runs/0000000000000000/report")
     assert r.status_code == 404
 
 
@@ -425,6 +455,13 @@ def test_scoped_keys_enforce_rbac(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         )
         assert (
             c.get(f"/api/v1/runs/{rid}/events", headers={"X-API-Key": "runner"}).status_code == 403
+        )
+        # The HTML report requires the read scope.
+        assert (
+            c.get(f"/api/v1/runs/{rid}/report", headers={"X-API-Key": "reader"}).status_code == 200
+        )
+        assert (
+            c.get(f"/api/v1/runs/{rid}/report", headers={"X-API-Key": "runner"}).status_code == 403
         )
         # Store stats also requires the read scope.
         assert c.get("/api/v1/store/stats", headers={"X-API-Key": "reader"}).status_code == 200

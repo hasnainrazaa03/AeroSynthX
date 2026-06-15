@@ -5,7 +5,7 @@ or offline parser) and the downstream engineering pipeline. They enforce
 the v0.1 operating envelope:
 
 - 2D incompressible (``mach < 0.3``).
-- NACA 4-digit airfoils only.
+- NACA 4-digit, 5-digit, or custom user-supplied airfoils.
 - Exactly one of ``velocity_m_s`` or ``mach`` provided; the other is
   derived downstream by the workflow layer.
 
@@ -37,31 +37,53 @@ MAX_ABS_ALPHA_DEG = 20.0
 MIN_ALTITUDE_M = 0.0
 MAX_ALTITUDE_M = 20_000.0
 
-_NACA4_RE = re.compile(r"^\d{4}$")
-
 
 class AirfoilSpec(BaseModel):
     """Airfoil family + designation + dimensional chord."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    family: Literal["naca4"]
-    designation: str = Field(..., description="4-digit NACA code, e.g. '2412'.")
+    family: Literal["naca4", "naca5", "custom"]
+    designation: str | None = Field(default=None, description="NACA code, e.g. '2412' or '23012'.")
     chord_m: PositiveFloat
+    coordinates: list[tuple[float, float]] | None = Field(default=None, description="User-supplied normalized coordinates for custom airfoils.")
 
-    @field_validator("designation")
-    @classmethod
-    def _validate_designation(cls, v: str) -> str:
-        if not _NACA4_RE.match(v):
-            raise ValueError(f"NACA 4-digit designation must be exactly 4 digits, got {v!r}")
-        m = int(v[0])
-        p = int(v[1])
-        t = int(v[2:4])
-        if m > 0 and p == 0:
-            raise ValueError("non-zero camber requires a non-zero camber position")
-        if t == 0:
-            raise ValueError("zero thickness is not a valid airfoil")
-        return v
+    @model_validator(mode="after")
+    def validate_family_fields(self) -> "AirfoilSpec":
+        """Ensure fields are consistent with the specified family."""
+        if self.family == "custom":
+            if self.coordinates is None:
+                raise ValueError("`coordinates` must be provided for `custom` airfoil family.")
+            if self.designation is not None:
+                raise ValueError("`designation` must not be provided for `custom` airfoil family.")
+        else: # NACA families
+            if self.designation is None:
+                raise ValueError(f"`designation` must be provided for `{self.family}` airfoil family.")
+            if self.coordinates is not None:
+                raise ValueError(f"`coordinates` must not be provided for `{self.family}` airfoil family.")
+
+            if not self.designation.isdigit():
+                raise ValueError("Designation must contain only digits.")
+
+            if self.family == "naca4":
+                if len(self.designation) != 4:
+                    raise ValueError("NACA 4-digit designation must be 4 characters long.")
+                m = int(self.designation[0])
+                p = int(self.designation[1])
+                t = int(self.designation[2:4])
+                if m > 0 and p == 0:
+                    raise ValueError("NACA 4-digit: non-zero camber requires a non-zero camber position.")
+                if t == 0:
+                    raise ValueError("NACA 4-digit: zero thickness is not a valid airfoil.")
+
+            elif self.family == "naca5":
+                if len(self.designation) != 5:
+                    raise ValueError("NACA 5-digit designation must be 5 characters long.")
+                t = int(self.designation[3:])
+                if t == 0:
+                    raise ValueError("NACA 5-digit: zero thickness is not a valid airfoil.")
+
+        return self
 
 
 class FlowCondition(BaseModel):
