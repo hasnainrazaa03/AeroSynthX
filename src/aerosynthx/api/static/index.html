@@ -9,7 +9,11 @@
   <body>
     <header>
       <h1>AeroSynthX</h1>
-      <span id="version" class="badge">…</span>
+      <div>
+        <label for="api-key" style="margin-right: 0.5em;">API Key:</label>
+        <input type="text" id="api-key" placeholder="Enter key (optional)" style="margin-right: 1em;" />
+        <span id="version" class="badge">…</span>
+      </div>
     </header>
 
     <main>
@@ -22,16 +26,21 @@
             placeholder="e.g. NACA 2412 at 50 m/s, alpha 3 deg, chord 1.0 m."
           ></textarea>
           <div class="row">
-            <label for="analysis-mode">Mode:</label>
-            <select id="analysis-mode">
-              <option value="openfoam" selected>OpenFOAM (High-Fidelity)</option>
-              <option value="xfoil">XFOIL (Fast Analysis)</option>
-            </select>
-            <label>
-              <input type="checkbox" id="resume" checked />
-              resume completed runs
-            </label>
-            <button type="submit">Run pipeline</button>
+            <div>
+              <label for="analysis-mode">Mode:</label>
+              <select id="analysis-mode" style="margin-right: 1em;">
+                <option value="openfoam" selected>OpenFOAM (High-Fidelity)</option>
+                <option value="xfoil">XFOIL (Fast Analysis)</option>
+              </select>
+              <label>
+                <input type="checkbox" id="resume" checked />
+                resume
+              </label>
+            </div>
+            <button type="submit" id="run-btn">
+              <span id="run-spinner" class="loader" hidden style="vertical-align: middle; margin-right: 5px; width: 12px; height: 12px; border-width: 2px;"></span>
+              Run pipeline
+            </button>
           </div>
         </form>
       </section>
@@ -42,7 +51,7 @@
         <h3>Stages</h3>
         <table id="stages">
           <thead>
-            <tr><th>Name</th><th>Status</th><th>ms</th><th>Digest</th></tr>
+            <tr><th data-sort="name">Name</th><th data-sort="status">Status</th><th data-sort="ms">ms</th><th>Digest</th></tr>
           </thead>
           <tbody></tbody>
         </table>
@@ -52,23 +61,22 @@
           <h3>XFOIL Results</h3>
           <table id="xfoil-results" hidden>
             <thead>
-              <tr><th>Alpha (deg)</th><th>Cl</th><th>Cd</th><th>Cm</th></tr>
+              <tr><th data-sort="alpha">Alpha (deg)</th><th data-sort="cl">Cl</th><th data-sort="cd">Cd</th><th data-sort="cm">Cm</th></tr>
             </thead>
             <tbody></tbody>
           </table>
         </div>
       </section>
 
-      <section class="panel">
-        <h2>Run history</h2>
+      <section class="panel" style="grid-column: 1 / -1;">
+        <h2>Run history <span id="history-spinner" class="loader" hidden style="margin-left: 10px; width: 16px; height: 16px; border-width: 3px;"></span></h2>
         <div class="runs-controls">
-          <input id="runs-search" type="search" placeholder="Search intent text…" />
+          <input id="runs-search" type="search" placeholder="Search intent text (live)…" style="flex-grow: 1;" />
           <select id="runs-status">
             <option value="">All statuses</option>
             <option value="completed">Completed</option>
             <option value="failed">Failed</option>
           </select>
-          <button id="refresh-runs" type="button">Search</button>
         </div>
         <table id="runs">
           <thead>
