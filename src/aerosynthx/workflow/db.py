@@ -67,16 +67,13 @@ class StageRow(Base):
 
 
 class XfoilResultRow(Base):
-    """One row per successful XFOIL analysis."""
+    """One row per successful XFOIL analysis, storing the full polar."""
 
     __tablename__ = "xfoil_results"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), index=True, unique=True)
-    alpha_deg: Mapped[float] = mapped_column(Float)
-    cl: Mapped[float] = mapped_column(Float)
-    cd: Mapped[float] = mapped_column(Float)
-    cm: Mapped[float] = mapped_column(Float)
+    polar_json: Mapped[str] = mapped_column(String)
 
     run: Mapped[RunRow] = relationship(back_populates="xfoil_result")
 

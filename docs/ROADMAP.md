@@ -1,6 +1,6 @@
 # AeroSynthX — Roadmap
 
-Status: Living document (current release `v1.18.0`).
+Status: Living document (current release `v1.19.0`).
 This roadmap defines phases, milestones, acceptance criteria, and the
 dependencies between them. It is the source of truth for sequencing.
 For the post-v1.2.0 feature backlog, see
@@ -56,7 +56,8 @@ release, (d) an updated `CHANGELOG.md`.
 | 23 | Geometry engine (NACA 5-digit) | Shipped (`v1.16.0`) |
 | 24 | User-supplied airfoil support | Shipped (`v1.17.0`) |
 | 25 | XFOIL integration | Shipped (`v1.18.0`) |
-| 25+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
+| 26 | XFOIL polar sweeps | Shipped (`v1.19.0`) |
+| 26+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
 
 Each phase has a dedicated checklist file under `docs/phases/`.
 

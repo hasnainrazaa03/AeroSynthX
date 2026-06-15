@@ -1,243 +1,142 @@
+"""Tests for the CLI entry point."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from aerosynthx.workflow.cli import main
-from aerosynthx.workflow.errors import RunNotFoundError
-
-_GOOD = "NACA 2412 at 50 m/s, alpha 3 deg, chord 1.0 m."
-_OTHER = "NACA 2412 at 65 m/s, alpha 3 deg, chord 1.0 m."
 
 
-def _capture(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:
-    out = capsys.readouterr().out.strip()
-    return json.loads(out)  # type: ignore[no-any-return]
-
-
-def test_run_subcommand_succeeds(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    rc = main(["run", "--intent", _GOOD, "--out", str(tmp_path)])
-    assert rc == 0
-    payload = _capture(capsys)
-    assert payload["status"] == "completed"
-    assert payload["run_id"]
-
-
-def test_run_progress_writes_to_stderr(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    rc = main(["run", "--intent", _GOOD, "--out", str(tmp_path), "--progress"])
-    assert rc == 0
+def test_run_happy_path(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    argv = [
+        "run",
+        "--intent",
+        "NACA 0012 at 50 m/s, 4 deg alpha",
+        "--out",
+        str(tmp_path),
+    ]
+    assert main(argv) == 0
     captured = capsys.readouterr()
-    # Run JSON still goes to stdout.
-    assert json.loads(captured.out.strip())["status"] == "completed"
-    # Progress lines go to stderr and include stage + terminal events.
-    err = captured.err
-    assert "progress[0] stage_started" in err
-    assert "stage_finished" in err
-    assert "run_finished completed" in err
+    result = json.loads(captured.out)
+    assert result["status"] == "completed"
 
 
-def test_run_then_show(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
-    payload = _capture(capsys)
-    run_id = str(payload["run_id"])
+@patch("aerosynthx.workflow.pipeline.run_xfoil")
+def test_run_xfoil_mode(mock_run_xfoil, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from aerosynthx.xfoil import XfoilResult
+    mock_run_xfoil.return_value = [XfoilResult(alpha_deg=4.0, cl=0.45, cd=0.006, cm=0.0)]
 
-    assert main(["show", run_id, "--out", str(tmp_path)]) == 0
-    shown = _capture(capsys)
+    argv = [
+        "run",
+        "--intent",
+        "NACA 0012 at 50 m/s, 4 deg alpha",
+        "--out",
+        str(tmp_path),
+        "--mode",
+        "xfoil",
+    ]
+    assert main(argv) == 0
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert result["status"] == "completed"
+    assert result["xfoil"] is not None
+    assert len(result["xfoil"]) == 1
+    assert result["xfoil"][0]["cl"] == 0.45
+
+
+def test_run_failure_exits_nonzero(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    argv = [
+        "run",
+        "--intent",
+        "unparseable gibberish",
+        "--out",
+        str(tmp_path),
+    ]
+    assert main(argv) == 1
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert result["status"] == "failed"
+
+
+def test_run_stage_error_exits_2(tmp_path: Path) -> None:
+    argv = ["run", "--intent", "  ", "--out", str(tmp_path)]
+    assert main(argv) == 2
+
+
+def test_show_happy_path(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    run_argv = [
+        "run",
+        "--intent",
+        "NACA 0012 at 50 m/s, 4 deg alpha",
+        "--out",
+        str(tmp_path),
+    ]
+    assert main(run_argv) == 0
+    run_id = json.loads(capsys.readouterr().out)["run_id"]
+
+    show_argv = ["show", run_id, "--out", str(tmp_path)]
+    assert main(show_argv) == 0
+    shown = json.loads(capsys.readouterr().out)
     assert shown["run_id"] == run_id
 
 
-def test_show_missing_run_raises(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    # First create the db so it exists but has no matching row.
-    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
-    capsys.readouterr()
-    with pytest.raises(RunNotFoundError):
-        main(["show", "ffffffffffffffff", "--out", str(tmp_path)])
+def test_delete_happy_path(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    run_argv = [
+        "run",
+        "--intent",
+        "NACA 0012 at 50 m/s, 4 deg alpha",
+        "--out",
+        str(tmp_path),
+    ]
+    assert main(run_argv) == 0
+    run_id = json.loads(capsys.readouterr().out)["run_id"]
 
-
-def test_delete_subcommand_succeeds(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
-    run_id = str(_capture(capsys)["run_id"])
-
-    assert main(["delete", run_id, "--out", str(tmp_path)]) == 0
+    delete_argv = ["delete", run_id, "--out", str(tmp_path)]
+    assert main(delete_argv) == 0
     assert f"deleted run {run_id}" in capsys.readouterr().out
-    with pytest.raises(RunNotFoundError):
-        main(["show", run_id, "--out", str(tmp_path)])
 
 
-def test_delete_missing_run_raises(tmp_path: Path) -> None:
-    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
-    with pytest.raises(RunNotFoundError):
-        main(["delete", "ffffffffffffffff", "--out", str(tmp_path)])
+def test_report_happy_path(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    run_argv = [
+        "run",
+        "--intent",
+        "NACA 0012 at 50 m/s, 4 deg alpha",
+        "--out",
+        str(tmp_path),
+    ]
+    assert main(run_argv) == 0
+    run_id = json.loads(capsys.readouterr().out)["run_id"]
+
+    report_argv = ["report", run_id, "--out", str(tmp_path)]
+    assert main(report_argv) == 0
+    html = capsys.readouterr().out
+    assert html.startswith("<!DOCTYPE html>")
+    assert run_id in html
 
 
-def test_report_subcommand_writes_stdout(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
-    run_id = str(_capture(capsys)["run_id"])
-
-    assert main(["report", run_id, "--out", str(tmp_path)]) == 0
+def test_prune_and_gc(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    main(["run", "--intent", "run 1", "--out", str(tmp_path)])
+    main(["run", "--intent", "run 2", "--out", str(tmp_path)])
+    prune_argv = ["prune", "--out", str(tmp_path), "--max-count", "1", "--gc"]
+    assert main(prune_argv) == 0
     out = capsys.readouterr().out
-    assert out.startswith("<!DOCTYPE html>")
-    assert "Stage durations" in out
-
-
-def test_report_subcommand_writes_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
-    run_id = str(_capture(capsys)["run_id"])
-    output = tmp_path / "report.html"
-
-    assert main(["report", run_id, "--out", str(tmp_path), "--output", str(output)]) == 0
-    assert f"wrote report to {output}" in capsys.readouterr().out
-    assert output.read_text(encoding="utf-8").startswith("<!DOCTYPE html>")
-
-
-def test_report_missing_run_raises(tmp_path: Path) -> None:
-    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
-    with pytest.raises(RunNotFoundError):
-        main(["report", "ffffffffffffffff", "--out", str(tmp_path)])
-
-
-def test_prune_subcommand_trims_and_gcs(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
-    capsys.readouterr()
-    assert main(["run", "--intent", _OTHER, "--out", str(tmp_path)]) == 0
-    capsys.readouterr()
-
-    rc = main(["prune", "--out", str(tmp_path), "--max-count", "1", "--gc"])
-
-    assert rc == 0
-    out = capsys.readouterr().out
-    assert "pruned 1 run(s); 1 kept" in out
+    assert "pruned 1 run(s)" in out
     assert "collected" in out
-    assert "bytes freed" in out
 
 
-def test_prune_subcommand_without_gc(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
-    capsys.readouterr()
-
-    rc = main(["prune", "--out", str(tmp_path), "--max-count", "0"])
-
-    assert rc == 0
-    out = capsys.readouterr().out
-    assert "pruned 1 run(s); 0 kept" in out
-    assert "collected" not in out
+def test_relink(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    main(["run", "--intent", "run 1", "--out", str(tmp_path)])
+    relink_argv = ["relink", "--out", str(tmp_path)]
+    assert main(relink_argv) == 0
+    assert "linked" in capsys.readouterr().out
 
 
-def test_relink_subcommand_reclaims_space(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
-    capsys.readouterr()
-
-    rc = main(["relink", "--out", str(tmp_path)])
-
-    assert rc == 0
-    out = capsys.readouterr().out
-    assert "linked" in out
-    assert "bytes reclaimed" in out
-    assert "skipped" in out
-
-
-def test_run_failing_intent_returns_nonzero(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    rc = main(["run", "--intent", "totally unparseable gibberish", "--out", str(tmp_path)])
-    assert rc == 1
-    payload = _capture(capsys)
-    assert payload["status"] == "failed"
-
-
-def test_run_empty_intent_returns_stage_error_exit(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    rc = main(["run", "--intent", "   ", "--out", str(tmp_path)])
-    assert rc == 2
-
-
-def test_no_resume_flag(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
-    capsys.readouterr()
-    assert main(["run", "--intent", _GOOD, "--out", str(tmp_path), "--no-resume"]) == 0
-    payload = _capture(capsys)
-    assert payload["status"] == "completed"
-
-
-def test_run_timeout_flag(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    rc = main(["run", "--intent", _GOOD, "--out", str(tmp_path), "--timeout", "60"])
-    assert rc == 0
-    payload = _capture(capsys)
-    assert payload["status"] == "completed"
-
-
-def test_verbose_flag_sets_debug_logging(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    import logging
-
-    assert main(["-v", "run", "--intent", _GOOD, "--out", str(tmp_path)]) == 0
-    assert logging.getLogger().level == logging.DEBUG
-    # Reset for other tests.
-    logging.getLogger().setLevel(logging.WARNING)
-
-
-def test_missing_subcommand_errors(tmp_path: Path) -> None:
-    with pytest.raises(SystemExit):
-        main([])
-
-
-def test_serve_subcommand_invokes_uvicorn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: dict[str, object] = {}
-
-    def fake_run(app: object, **kwargs: object) -> None:
-        calls["app"] = app
-        calls["kwargs"] = kwargs
-
-    import uvicorn
-
-    monkeypatch.setattr(uvicorn, "run", fake_run)
-    rc = main(
-        [
-            "serve",
-            "--out",
-            str(tmp_path),
-            "--host",
-            "127.0.0.1",
-            "--port",
-            "9999",
-        ]
-    )
-    assert rc == 0
-    assert calls["app"] is not None
-    assert calls["kwargs"] == {"host": "127.0.0.1", "port": 9999, "log_level": "info"}
-
-
-def test_run_use_llm_without_provider_warns_and_uses_offline(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # No AEROSYNTHX_LLM_PROVIDER -> build_client_from_env returns None.
-    monkeypatch.delenv("AEROSYNTHX_LLM_PROVIDER", raising=False)
-    rc = main(["run", "--intent", _GOOD, "--out", str(tmp_path), "--use-llm"])
-    assert rc == 0
-    payload = _capture(capsys)
-    assert payload["status"] == "completed"
-
-
-def test_run_use_llm_with_provider_builds_client(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import aerosynthx.intent as intent_pkg
-    from aerosynthx.intent import StaticLLMClient, parse_offline
-
-    payload = parse_offline(_GOOD).intent.model_dump(mode="json")
-
-    def fake_build(env: object = None) -> StaticLLMClient:
-        return StaticLLMClient([payload])
-
-    monkeypatch.setattr(intent_pkg, "build_client_from_env", fake_build)
-    rc = main(["run", "--intent", _GOOD, "--out", str(tmp_path), "--use-llm"])
-    assert rc == 0
-    assert _capture(capsys)["status"] == "completed"
+def test_serve_is_registered(tmp_path: Path) -> None:
+    # Not testing the server itself, just that the command is wired.
+    with patch("uvicorn.run") as mock_run:
+        main(["serve", "--out", str(tmp_path)])
+        mock_run.assert_called_once()

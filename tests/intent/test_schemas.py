@@ -143,6 +143,26 @@ def test_flow_accepts_none_altitude_with_velocity() -> None:
     assert f.altitude_m is None
 
 
+def test_flow_aoa_sweep_valid() -> None:
+    f = FlowCondition(velocity_m_s=50.0, alpha_start_deg=0.0, alpha_end_deg=5.0, alpha_increment_deg=1.0)
+    assert f.alpha_start_deg == 0.0
+
+
+def test_flow_rejects_single_aoa_and_sweep() -> None:
+    with pytest.raises(ValidationError, match="specify either a single angle_of_attack_deg or a sweep range, not both"):
+        FlowCondition(velocity_m_s=50.0, angle_of_attack_deg=2.0, alpha_start_deg=0.0, alpha_end_deg=5.0, alpha_increment_deg=1.0)
+
+
+def test_flow_rejects_incomplete_sweep() -> None:
+    with pytest.raises(ValidationError, match="must all be provided for a sweep"):
+        FlowCondition(velocity_m_s=50.0, alpha_start_deg=0.0, alpha_end_deg=5.0)
+
+
+def test_flow_rejects_invalid_sweep_range() -> None:
+    with pytest.raises(ValidationError, match="must be less than alpha_end_deg"):
+        FlowCondition(velocity_m_s=50.0, alpha_start_deg=5.0, alpha_end_deg=0.0, alpha_increment_deg=1.0)
+
+
 # ---------------------------------------------------------- DesignIntent
 
 

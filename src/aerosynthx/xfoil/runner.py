@@ -15,7 +15,7 @@ from aerosynthx.xfoil.errors import (
 from aerosynthx.xfoil.parser import XfoilResult, parse_polar_file
 
 
-def run_xfoil(airfoil: Airfoil, flow: FlowCondition) -> XfoilResult:
+def run_xfoil(airfoil: Airfoil, flow: FlowCondition) -> list[XfoilResult]:
     """
     Runs XFOIL for a given airfoil and flow condition.
 
@@ -24,7 +24,7 @@ def run_xfoil(airfoil: Airfoil, flow: FlowCondition) -> XfoilResult:
         flow: The flow conditions.
 
     Returns:
-        An XfoilResult with the calculated coefficients.
+        A list of XfoilResult objects with the calculated coefficients.
 
     Raises:
         XfoilNotFoundError: If the xfoil executable is not found.
@@ -47,9 +47,10 @@ def run_xfoil(airfoil: Airfoil, flow: FlowCondition) -> XfoilResult:
         airfoil_file.write_text(to_selig_dat(airfoil))
 
         # Generate XFOIL command script
-        # Note: Reynolds number is required for viscous analysis in XFOIL.
-        # The workflow should ensure Re is calculated before this step.
-        reynolds = flow.reynolds_target or 1e6 # Default to 1M if not provided
+        reynolds = flow.reynolds_target or 1e6  # Default to 1M if not provided
+
+        # Determine if it's a single point or a sweep
+        is_sweep = flow.alpha_start_deg is not None
 
         script = f"""
 LOAD {airfoil_file}
@@ -58,7 +59,13 @@ VISC {reynolds}
 PACC
 {polar_file}
 
-ALFA {flow.angle_of_attack_deg}
+"""
+        if is_sweep:
+            script += f"ASEQ {flow.alpha_start_deg} {flow.alpha_end_deg} {flow.alpha_increment_deg}\n"
+        else:
+            script += f"ALFA {flow.angle_of_attack_deg}\n"
+
+        script += """
 PACC
 QUIT
 """
@@ -74,10 +81,14 @@ QUIT
         # Check for convergence errors in stdout
         stdout = process.stdout.decode("utf-8")
         if "convergence failed" in stdout.lower():
-            raise XfoilConvergenceError(
-                f"XFOIL failed to converge for AoA = {flow.angle_of_attack_deg}",
-                code="xfoil.convergence_failed",
-            )
+            # For sweeps, this is not a fatal error, as some points may have converged.
+            # We will let the parser handle the partial results.
+            # For a single point analysis, it is a fatal error.
+            if not is_sweep:
+                raise XfoilConvergenceError(
+                    f"XFOIL failed to converge for AoA = {flow.angle_of_attack_deg}",
+                    code="xfoil.convergence_failed",
+                )
 
         if not polar_file.exists():
             raise XfoilConvergenceError(
@@ -87,4 +98,4 @@ QUIT
 
         # Parse the output file
         polar_content = polar_file.read_text()
-        return parse_polar_file(polar_content, target_alpha=flow.angle_of_attack_deg)
+        return parse_polar_file(polar_content)

@@ -32,8 +32,10 @@ OFFLINE_MODEL_NAME = "offline"
 
 # --- Extraction patterns (case-insensitive). ---
 
-_NACA_RE = re.compile(r"naca[-_\s]*([0-9]{4})\b", re.IGNORECASE)
+_NACA4_RE = re.compile(r"naca[-_\s]*([0-9]{4})\b", re.IGNORECASE)
+_NACA5_RE = re.compile(r"naca[-_\s]*([0-9]{5})\b", re.IGNORECASE)
 _BARE_4DIGIT_RE = re.compile(r"(?<![0-9])([0-9]{4})(?![0-9])")
+_BARE_5DIGIT_RE = re.compile(r"(?<![0-9])([0-9]{5})(?![0-9])")
 _CHORD_RE = re.compile(
     r"""(?ix)
     chord
@@ -126,14 +128,26 @@ def _to_si_or_error(value: float, unit: str, *, dimension: str, field: str) -> f
         ) from exc
 
 
-def _extract_naca(text: str) -> str | None:
-    m = _NACA_RE.search(text)
-    if m:
-        return m.group(1)
-    # Bare 4-digit fallback only if there's also a "NACA"-less clue (e.g. nothing else)
-    # We accept a bare 4-digit token only when no NACA-prefixed match was found.
-    m2 = _BARE_4DIGIT_RE.search(text)
-    return m2.group(1) if m2 else None
+def _extract_naca(text: str) -> tuple[str, str] | None:
+    """Extracts a NACA designation and its family ('naca4' or 'naca5')."""
+    m5 = _NACA5_RE.search(text)
+    if m5:
+        return m5.group(1), "naca5"
+
+    m4 = _NACA4_RE.search(text)
+    if m4:
+        return m4.group(1), "naca4"
+
+    # Bare digit fallbacks
+    m5_bare = _BARE_5DIGIT_RE.search(text)
+    if m5_bare:
+        return m5_bare.group(1), "naca5"
+
+    m4_bare = _BARE_4DIGIT_RE.search(text)
+    if m4_bare:
+        return m4_bare.group(1), "naca4"
+
+    return None
 
 
 def _extract_chord_m(text: str) -> float | None:
@@ -208,12 +222,13 @@ def parse_offline(text: str) -> ParseResult:
             code="intent.offline.empty_input",
         )
 
-    designation = _extract_naca(text)
-    if designation is None:
+    naca_result = _extract_naca(text)
+    if naca_result is None:
         raise LLMParseError(
-            "could not find a NACA 4-digit designation in the input",
+            "could not find a NACA 4-digit or 5-digit designation in the input",
             code="intent.offline.missing_airfoil",
         )
+    designation, family = naca_result
 
     velocity = _extract_velocity_m_s(text)
     mach = _extract_mach(text)
@@ -235,18 +250,11 @@ def parse_offline(text: str) -> ParseResult:
 
     assumptions: list[Assumption] = []
     provenance: dict[str, str] = {
-        "airfoil.family": "inferred",  # always inferred from envelope (only naca4 supported)
+        "airfoil.family": "user_provided",
         "airfoil.designation": "user_provided",
         "flow.angle_of_attack_deg": "user_provided" if aoa is not None else "inferred",
         "airfoil.chord_m": "user_provided" if chord is not None else "inferred",
     }
-    assumptions.append(
-        Assumption(
-            field_path="airfoil.family",
-            value="naca4",
-            reason="Phase 0.1 envelope supports NACA 4-digit only.",
-        )
-    )
 
     if chord is None:
         chord = _DEFAULT_CHORD_M
@@ -285,7 +293,7 @@ def parse_offline(text: str) -> ParseResult:
     if reynolds is not None:
         provenance["flow.reynolds_target"] = "user_provided"
 
-    airfoil = AirfoilSpec(family="naca4", designation=designation, chord_m=chord)
+    airfoil = AirfoilSpec(family=family, designation=designation, chord_m=chord)
     flow = FlowCondition(
         altitude_m=altitude,
         velocity_m_s=velocity,

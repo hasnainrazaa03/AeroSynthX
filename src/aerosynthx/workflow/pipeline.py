@@ -134,7 +134,7 @@ def _run_id_for(intent_text: str, mode: str = "openfoam") -> str:
     return digest[:16]
 
 
-def _sha256_of_json(payload: dict[str, Any]) -> str:
+def _sha256_of_json(payload: dict[str, Any] | list[dict[str, Any]]) -> str:
     blob = json.dumps(payload, sort_keys=True).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()
 
@@ -163,7 +163,7 @@ class RunResult:
     manifest_digest: str | None
     stages: tuple[StageResult, ...]
     solve_result: SolveResult | None = None
-    xfoil_result: XfoilResult | None = None
+    xfoil_results: list[XfoilResult] | None = None
 
     def to_json(self) -> dict[str, Any]:
         """Render as a JSON-serialisable dict."""
@@ -177,7 +177,7 @@ class RunResult:
             "manifest_digest": self.manifest_digest,
             "stages": [asdict(s) for s in self.stages],
             "solve": _solve_dict(self.solve_result) if self.solve_result else None,
-            "xfoil": asdict(self.xfoil_result) if self.xfoil_result else None,
+            "xfoil": [asdict(r) for r in self.xfoil_results] if self.xfoil_results else None,
         }
 
 
@@ -548,7 +548,7 @@ class Pipeline:
         manifest: CaseManifest | None = None
         case_dir: Path | None = None
         solve_result: SolveResult | None = None
-        xfoil_result: XfoilResult | None = None
+        xfoil_results: list[XfoilResult] | None = None
 
         # --- parse -------------------------------------------------
         with _timed(StageName.PARSE, emit) as record:
@@ -615,7 +615,7 @@ class Pipeline:
             # --- xfoil -------------------------------------------------
             assert intent is not None
             assert flow is not None
-            xfoil_result = self._xfoil_stage(intent, stages, control, emit)
+            xfoil_results = self._xfoil_stage(intent, stages, control, emit)
             if stages[-1].status == "failed":
                 return self._finalise(
                     run_id, intent_text, "failed", stages, intent, flow, None, None, None
@@ -633,7 +633,7 @@ class Pipeline:
                 case_dir=case_dir,
                 manifest_digest=manifest_digest,
                 stages_so_far=stages,
-                xfoil_result=xfoil_result,
+                xfoil_results=xfoil_results,
             )
             record["digest"] = manifest_digest
         stages.append(record["result"])
@@ -648,7 +648,7 @@ class Pipeline:
             case_dir=case_dir,
             manifest_digest=manifest_digest,
             stages_so_far=stages,
-            xfoil_result=xfoil_result,
+            xfoil_results=xfoil_results,
         )
 
         result = RunResult(
@@ -661,7 +661,7 @@ class Pipeline:
             manifest_digest=manifest_digest,
             stages=tuple(stages),
             solve_result=solve_result,
-            xfoil_result=xfoil_result,
+            xfoil_results=xfoil_results,
         )
         (run_dir / "run.json").write_text(
             json.dumps(result.to_json(), indent=2, sort_keys=True) + "\n",
@@ -717,9 +717,9 @@ class Pipeline:
         stages: list[StageResult],
         control: RunControl,
         emit: _Emit = _noop_emit,
-    ) -> XfoilResult | None:
+    ) -> list[XfoilResult] | None:
         """Run the XFOIL analysis stage, appending its :class:`StageResult`."""
-        xfoil_result: XfoilResult | None = None
+        xfoil_results: list[XfoilResult] | None = None
         with _timed(StageName.XFOIL, emit) as record:
             control.check(StageName.XFOIL.value)
             try:
@@ -731,12 +731,12 @@ class Pipeline:
                 else:
                     airfoil = naca4(intent.airfoil.designation, chord_m=float(intent.airfoil.chord_m))
 
-                xfoil_result = run_xfoil(airfoil, intent.flow)
-                record["digest"] = _sha256_of_json(asdict(xfoil_result))
+                xfoil_results = run_xfoil(airfoil, intent.flow)
+                record["digest"] = _sha256_of_json([asdict(r) for r in xfoil_results])
             except XfoilError as exc:
                 record["error"] = str(exc)
         stages.append(record["result"])
-        return xfoil_result
+        return xfoil_results
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -761,7 +761,7 @@ class Pipeline:
         case_dir: Path | None,
         manifest_digest: str | None,
         stages_so_far: list[StageResult],
-        xfoil_result: XfoilResult | None = None,
+        xfoil_results: list[XfoilResult] | None = None,
     ) -> None:
         now_iso = datetime.now(tz=UTC).isoformat(timespec="seconds")
         with open_session(self._db_path) as session:
@@ -771,12 +771,9 @@ class Pipeline:
                 session.flush()
 
             xfoil_row = None
-            if xfoil_result is not None:
+            if xfoil_results is not None:
                 xfoil_row = XfoilResultRow(
-                    alpha_deg=xfoil_result.alpha_deg,
-                    cl=xfoil_result.cl,
-                    cd=xfoil_result.cd,
-                    cm=xfoil_result.cm,
+                    polar_json=json.dumps([asdict(r) for r in xfoil_results])
                 )
 
             row = RunRow(
@@ -820,7 +817,7 @@ class Pipeline:
         flow: FlowState | None,
         case_dir: Path | None,
         manifest_digest: str | None,
-        xfoil_result: XfoilResult | None,
+        xfoil_results: list[XfoilResult] | None,
     ) -> RunResult:
         # Mark any stages that never ran as pending.
         executed = {s.name for s in stages}
@@ -849,7 +846,7 @@ class Pipeline:
                 case_dir=case_dir,
                 manifest_digest=manifest_digest,
                 stages_so_far=stages,
-                xfoil_result=xfoil_result,
+                xfoil_results=xfoil_results,
             )
         except Exception:  # pragma: no cover - defensive
             _LOG.exception("failed to persist failed run %s", run_id)
@@ -863,7 +860,7 @@ class Pipeline:
             case_dir=case_dir,
             manifest_digest=manifest_digest,
             stages=tuple(stages),
-            xfoil_result=xfoil_result,
+            xfoil_results=xfoil_results,
         )
 
 
@@ -966,14 +963,9 @@ def _row_to_result(row: RunRow) -> RunResult:
     )
     case_dir = Path(row.case_dir) if row.case_dir else None
 
-    xfoil_result = None
-    if row.xfoil_result:
-        xfoil_result = XfoilResult(
-            alpha_deg=row.xfoil_result.alpha_deg,
-            cl=row.xfoil_result.cl,
-            cd=row.xfoil_result.cd,
-            cm=row.xfoil_result.cm,
-        )
+    xfoil_results = None
+    if row.xfoil_result and row.xfoil_result.polar_json:
+        xfoil_results = [XfoilResult(**r) for r in json.loads(row.xfoil_result.polar_json)]
 
     return RunResult(
         run_id=row.id,
@@ -985,7 +977,7 @@ def _row_to_result(row: RunRow) -> RunResult:
         manifest_digest=row.manifest_digest,
         stages=stages,
         solve_result=_load_solve_result(case_dir),
-        xfoil_result=xfoil_result,
+        xfoil_results=xfoil_results,
     )
 
 

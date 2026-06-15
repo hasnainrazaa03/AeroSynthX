@@ -56,7 +56,7 @@ class AirfoilSpec(BaseModel):
                 raise ValueError("`coordinates` must be provided for `custom` airfoil family.")
             if self.designation is not None:
                 raise ValueError("`designation` must not be provided for `custom` airfoil family.")
-        else: # NACA families
+        else:  # NACA families
             if self.designation is None:
                 raise ValueError(f"`designation` must be provided for `{self.family}` airfoil family.")
             if self.coordinates is not None:
@@ -103,8 +103,13 @@ class FlowCondition(BaseModel):
     )
     velocity_m_s: PositiveFloat | None = None
     mach: float | None = Field(default=None, ge=0.0, lt=MAX_MACH_INCOMPRESSIBLE)
-    angle_of_attack_deg: float = Field(..., ge=-MAX_ABS_ALPHA_DEG, le=MAX_ABS_ALPHA_DEG)
+    angle_of_attack_deg: float | None = Field(default=None, ge=-MAX_ABS_ALPHA_DEG, le=MAX_ABS_ALPHA_DEG)
     reynolds_target: PositiveFloat | None = None
+
+    # New fields for AoA sweeps
+    alpha_start_deg: float | None = Field(default=None, ge=-MAX_ABS_ALPHA_DEG, le=MAX_ABS_ALPHA_DEG)
+    alpha_end_deg: float | None = Field(default=None, ge=-MAX_ABS_ALPHA_DEG, le=MAX_ABS_ALPHA_DEG)
+    alpha_increment_deg: PositiveFloat | None = None
 
     @field_validator("altitude_m")
     @classmethod
@@ -118,17 +123,32 @@ class FlowCondition(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def _exactly_one_speed(self) -> FlowCondition:
+    def _validate_flow_conditions(self) -> "FlowCondition":
+        # Validate speed
         has_v = self.velocity_m_s is not None
         has_m = self.mach is not None
         if has_v and has_m:
-            raise ValueError(
-                "specify exactly one of velocity_m_s or mach; the other is derived downstream"
-            )
+            raise ValueError("specify exactly one of velocity_m_s or mach; the other is derived downstream")
         if not has_v and not has_m:
             raise ValueError("at least one of velocity_m_s or mach must be provided")
         if has_m and self.altitude_m is None:
             raise ValueError("altitude_m is required when mach is provided without velocity_m_s")
+
+        # Validate angle of attack
+        has_single_aoa = self.angle_of_attack_deg is not None
+        has_sweep_aoa = self.alpha_start_deg is not None or self.alpha_end_deg is not None or self.alpha_increment_deg is not None
+
+        if has_single_aoa and has_sweep_aoa:
+            raise ValueError("specify either a single angle_of_attack_deg or a sweep range, not both")
+        if not has_single_aoa and not has_sweep_aoa:
+            raise ValueError("at least one of angle_of_attack_deg or a sweep range must be provided")
+
+        if has_sweep_aoa:
+            if not (self.alpha_start_deg is not None and self.alpha_end_deg is not None and self.alpha_increment_deg is not None):
+                raise ValueError("alpha_start_deg, alpha_end_deg, and alpha_increment_deg must all be provided for a sweep")
+            if self.alpha_start_deg >= self.alpha_end_deg:
+                raise ValueError("alpha_start_deg must be less than alpha_end_deg")
+
         return self
 
 

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from aerosynthx.openfoam.runner import CommandRunner
 
 _GOOD_INTENT = "NACA 2412 at 50 m/s, alpha 3 deg, chord 1.0 m."
+_GOOD_INTENT_SWEEP = "NACA 0012 from 0 to 5 degrees alpha by 1 degree"
 _OTHER_INTENT = "NACA 2412 at 65 m/s, alpha 3 deg, chord 1.0 m."
 
 
@@ -37,29 +38,55 @@ def test_run_happy_path_produces_all_stage_results(tmp_path: Path) -> None:
 
 
 @patch("aerosynthx.workflow.pipeline.run_xfoil")
-def test_run_xfoil_mode_happy_path(mock_run_xfoil, tmp_path: Path) -> None:
-    """Test the happy path for the xfoil analysis mode."""
-    mock_run_xfoil.return_value = XfoilResult(alpha_deg=3.0, cl=0.5, cd=0.01, cm=-0.02)
+def test_run_xfoil_mode_single_point(mock_run_xfoil, tmp_path: Path) -> None:
+    """Test the happy path for a single-point xfoil analysis."""
+    mock_run_xfoil.return_value = [XfoilResult(alpha_deg=3.0, cl=0.5, cd=0.01, cm=-0.02)]
     pipe = Pipeline(out_root=tmp_path)
     result = pipe.run(_GOOD_INTENT, analysis_mode="xfoil")
 
     assert result.status == "completed"
-    assert result.xfoil_result is not None
-    assert result.xfoil_result.cl == 0.5
-    assert result.case_dir is None  # No OpenFOAM case should be generated
+    assert result.xfoil_results is not None
+    assert len(result.xfoil_results) == 1
+    assert result.xfoil_results[0].cl == 0.5
+    assert result.case_dir is None
 
-    # Check that the correct stages were run
     stage_names = {s.name for s in result.stages}
     assert "xfoil" in stage_names
     assert "case" not in stage_names
-    assert "solve" not in stage_names
 
-    # Check that the result was persisted
     with open_session(pipe.db_path) as session:
         row = session.get(RunRow, result.run_id)
         assert row is not None
         assert row.xfoil_result is not None
-        assert row.xfoil_result.cl == 0.5
+        import json
+        data = json.loads(row.xfoil_result.polar_json)
+        assert len(data) == 1
+        assert data[0]["cl"] == 0.5
+
+
+@patch("aerosynthx.workflow.pipeline.run_xfoil")
+def test_run_xfoil_mode_sweep(mock_run_xfoil, tmp_path: Path) -> None:
+    """Test the happy path for an xfoil sweep analysis."""
+    mock_run_xfoil.return_value = [
+        XfoilResult(alpha_deg=0.0, cl=0.0, cd=0.005, cm=0.0),
+        XfoilResult(alpha_deg=1.0, cl=0.1, cd=0.006, cm=0.0),
+    ]
+    pipe = Pipeline(out_root=tmp_path)
+    result = pipe.run(_GOOD_INTENT_SWEEP, analysis_mode="xfoil")
+
+    assert result.status == "completed"
+    assert result.xfoil_results is not None
+    assert len(result.xfoil_results) == 2
+    assert result.xfoil_results[1].cl == 0.1
+
+    with open_session(pipe.db_path) as session:
+        row = session.get(RunRow, result.run_id)
+        assert row is not None
+        assert row.xfoil_result is not None
+        import json
+        data = json.loads(row.xfoil_result.polar_json)
+        assert len(data) == 2
+        assert data[1]["cl"] == 0.1
 
 
 def test_run_persists_to_db(tmp_path: Path) -> None:
@@ -75,7 +102,6 @@ def test_run_persists_to_db(tmp_path: Path) -> None:
 def test_run_is_resumable(tmp_path: Path) -> None:
     pipe = Pipeline(out_root=tmp_path)
     first = pipe.run(_GOOD_INTENT)
-    # Mutate the case dir to detect re-execution.
     sentinel = first.case_dir / ".sentinel" if first.case_dir else None
     assert sentinel is not None
     sentinel.write_text("keep")
@@ -91,24 +117,20 @@ def test_run_archives_case_into_store(tmp_path: Path) -> None:
     result = pipe.run(_GOOD_INTENT)
     assert result.case_dir is not None
 
-    # Every manifest file is now present in the content-addressed store.
     manifest_path = result.case_dir / "aerosynthx_manifest.json"
     import json
-
     manifest = json.loads(manifest_path.read_text())
     store = pipe.artifact_store
     for digest in manifest["files"].values():
         assert store.has(digest)
 
     blobs_before = store.stats().blobs
-    # A fresh (non-resumed) run of the same intent de-duplicates: no new blobs.
     pipe.run(_GOOD_INTENT, resume=False)
     assert store.stats().blobs == blobs_before
 
 
 def test_injected_artifact_store_is_used(tmp_path: Path) -> None:
     from aerosynthx.workflow.artifacts import ContentAddressedStore
-
     store = ContentAddressedStore(tmp_path / "custom-blobs")
     pipe = Pipeline(out_root=tmp_path, artifact_store=store)
     assert pipe.artifact_store is store
@@ -142,14 +164,12 @@ def test_run_records_parse_failure(tmp_path: Path) -> None:
     parse_stage = next(s for s in result.stages if s.name == "parse")
     assert parse_stage.status == "failed"
     assert parse_stage.error
-    # Later stages must be marked pending.
     later = [s for s in result.stages if s.name in {"compute", "case", "persist"}]
     assert all(s.status == "pending" for s in later)
 
 
 def test_load_run_returns_none_for_missing(tmp_path: Path) -> None:
     assert load_run(tmp_path / "missing.db", "deadbeef") is None
-    # Now create db but no row.
     pipe = Pipeline(out_root=tmp_path)
     pipe.run(_GOOD_INTENT)
     assert load_run(pipe.db_path, "0000000000000000") is None
@@ -170,13 +190,11 @@ def test_load_run_returns_persisted(tmp_path: Path) -> None:
 
 def test_load_run_restores_solve_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from aerosynthx.workflow import pipeline as pipe_mod
-
     monkeypatch.setattr(pipe_mod, "openfoam_available", lambda: True)
     holder: dict[str, Path] = {}
     pipe = Pipeline(out_root=tmp_path, command_runner=_coeff_runner(holder))
     result = pipe.run(_GOOD_INTENT, execute=True)
     reloaded = load_run(pipe.db_path, result.run_id)
-
     assert reloaded is not None
     assert reloaded.solve_result is not None
     assert reloaded.solve_result.ran is True
@@ -261,12 +279,9 @@ def test_relink_runs_noop_when_db_missing(tmp_path: Path) -> None:
 def test_relink_runs_links_then_idempotent(tmp_path: Path) -> None:
     pipe = Pipeline(out_root=tmp_path)
     pipe.run(_GOOD_INTENT)
-
     first = pipe.relink_runs()
     assert first.linked > 0
     assert first.bytes_reclaimed > 0
-
-    # A second pass finds every file already linked.
     second = pipe.relink_runs()
     assert second.linked == 0
     assert second.bytes_reclaimed == 0
@@ -278,7 +293,6 @@ def test_relink_runs_skips_missing_manifest(tmp_path: Path) -> None:
     run = pipe.run(_GOOD_INTENT)
     assert run.case_dir is not None
     (run.case_dir / "aerosynthx_manifest.json").unlink()
-
     result = pipe.relink_runs()
     assert (result.linked, result.bytes_reclaimed, result.skipped) == (0, 0, 0)
 
@@ -290,14 +304,12 @@ def test_relink_runs_skips_rows_without_case_dir(tmp_path: Path) -> None:
         for row in session.execute(select(RunRow)).scalars().all():
             row.case_dir = None
         session.commit()
-
     result = pipe.relink_runs()
     assert (result.linked, result.bytes_reclaimed, result.skipped) == (0, 0, 0)
 
 
 def test_run_result_to_json_is_serialisable(tmp_path: Path) -> None:
     import json
-
     pipe = Pipeline(out_root=tmp_path)
     result = pipe.run(_GOOD_INTENT)
     blob = json.dumps(result.to_json())
@@ -306,7 +318,6 @@ def test_run_result_to_json_is_serialisable(tmp_path: Path) -> None:
 
 def test_compute_stage_envelope_violation(tmp_path: Path) -> None:
     pipe = Pipeline(out_root=tmp_path)
-    # 110 m/s at sea level -> Mach > 0.3 -> envelope violation.
     result = pipe.run("NACA 2412 at 110 m/s, alpha 0 deg, sea level.")
     assert result.status == "failed"
     compute = next(s for s in result.stages if s.name == "compute")
@@ -316,10 +327,8 @@ def test_compute_stage_envelope_violation(tmp_path: Path) -> None:
 def test_case_stage_failure_is_captured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from aerosynthx.openfoam.errors import OpenFoamError
     from aerosynthx.workflow import pipeline as pipe_mod
-
     def boom(*_a: object, **_k: object) -> None:
         raise OpenFoamError("case build failed", code="openfoam.case.broken")
-
     monkeypatch.setattr(pipe_mod, "build_case", boom)
     pipe = Pipeline(out_root=tmp_path)
     result = pipe.run(_GOOD_INTENT)
@@ -333,17 +342,12 @@ def test_case_stage_failure_is_captured(tmp_path: Path, monkeypatch: pytest.Monk
 def test_resume_skips_only_completed_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from aerosynthx.openfoam.errors import OpenFoamError
     from aerosynthx.workflow import pipeline as pipe_mod
-
     def boom(*_a: object, **_k: object) -> None:
         raise OpenFoamError("nope", code="openfoam.case.broken")
-
     monkeypatch.setattr(pipe_mod, "build_case", boom)
     pipe = Pipeline(out_root=tmp_path)
     first = pipe.run(_GOOD_INTENT)
     assert first.status == "failed"
-
-    # Restore: a second run with resume=True should NOT short-circuit
-    # because the prior run did not complete; it must execute fully.
     monkeypatch.undo()
     second = pipe.run(_GOOD_INTENT)
     assert second.status == "completed"
@@ -363,12 +367,9 @@ def test_load_run_handles_failed_run_with_no_flow(tmp_path: Path) -> None:
 def test_run_handles_unexpected_stage_exception(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A non-domain exception inside a stage is captured as a failure."""
     from aerosynthx.workflow import pipeline as pipe_mod
-
     def boom(_intent: object) -> None:
         raise RuntimeError("kaboom")
-
     monkeypatch.setattr(pipe_mod, "derive_flow_state", boom)
     pipe = Pipeline(out_root=tmp_path)
     result = pipe.run(_GOOD_INTENT)
@@ -380,13 +381,11 @@ def test_run_handles_unexpected_stage_exception(
 
 def _valid_intent_payload() -> dict[str, object]:
     from aerosynthx.intent import parse_offline
-
     return parse_offline(_GOOD_INTENT).intent.model_dump(mode="json")
 
 
 def test_run_uses_llm_client_when_provided(tmp_path: Path) -> None:
     from aerosynthx.intent import StaticLLMClient
-
     client = StaticLLMClient([_valid_intent_payload()])
     pipe = Pipeline(out_root=tmp_path, llm_client=client)
     result = pipe.run(_GOOD_INTENT, resume=False)
@@ -396,8 +395,6 @@ def test_run_uses_llm_client_when_provided(tmp_path: Path) -> None:
 
 def test_run_falls_back_to_offline_on_llm_failure(tmp_path: Path) -> None:
     from aerosynthx.intent import StaticLLMClient
-
-    # An empty response queue makes the parser raise, forcing fallback.
     client = StaticLLMClient([{"not": "valid"}, {"still": "bad"}, {"nope": True}])
     pipe = Pipeline(out_root=tmp_path, llm_client=client)
     result = pipe.run(_GOOD_INTENT, resume=False)
@@ -408,9 +405,6 @@ def test_run_falls_back_to_offline_on_llm_failure(tmp_path: Path) -> None:
 
 def test_run_records_failure_when_llm_and_offline_both_fail(tmp_path: Path) -> None:
     from aerosynthx.intent import StaticLLMClient
-
-    # LLM returns junk (parser raises) AND the prose is unparseable offline,
-    # so the fallback also raises -> the parse stage must fail cleanly.
     client = StaticLLMClient([{"bad": 1}, {"bad": 2}, {"bad": 3}])
     pipe = Pipeline(out_root=tmp_path, llm_client=client)
     result = pipe.run("totally unparseable gibberish", resume=False)
@@ -421,29 +415,23 @@ def test_run_records_failure_when_llm_and_offline_both_fail(tmp_path: Path) -> N
 
 def _coeff_runner(case_dir_holder: dict[str, Path]) -> CommandRunner:
     from collections.abc import Sequence
-
     from aerosynthx.openfoam.runner import CommandResult
-
     log = (
         "smoothSolver:  Solving for Ux, Initial residual = 0.01\n"
         "SIMPLE solution converged in 1 iterations\n"
     )
-
     def runner(command: Sequence[str], *, cwd: Path, timeout: float) -> CommandResult:
         case_dir_holder["cwd"] = cwd
         return CommandResult(command=tuple(command), returncode=0, stdout=log, stderr="")
-
     return runner
 
 
 def test_run_execute_runs_solver(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from aerosynthx.workflow import pipeline as pipe_mod
-
     monkeypatch.setattr(pipe_mod, "openfoam_available", lambda: True)
     holder: dict[str, Path] = {}
     pipe = Pipeline(out_root=tmp_path, command_runner=_coeff_runner(holder))
     result = pipe.run(_GOOD_INTENT, execute=True)
-
     assert result.status == "completed"
     assert result.solve_result is not None
     assert result.solve_result.converged is True
@@ -457,11 +445,9 @@ def test_run_execute_skips_without_openfoam(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from aerosynthx.workflow import pipeline as pipe_mod
-
     monkeypatch.setattr(pipe_mod, "openfoam_available", lambda: False)
     pipe = Pipeline(out_root=tmp_path)
     result = pipe.run(_GOOD_INTENT, execute=True)
-
     assert result.status == "completed"
     assert result.solve_result is None
     solve = next(s for s in result.stages if s.name == "solve")
@@ -472,18 +458,13 @@ def test_run_execute_records_solver_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from collections.abc import Sequence
-
     from aerosynthx.openfoam.runner import CommandResult
     from aerosynthx.workflow import pipeline as pipe_mod
-
     monkeypatch.setattr(pipe_mod, "openfoam_available", lambda: True)
-
     def failing(command: Sequence[str], *, cwd: Path, timeout: float) -> CommandResult:
         return CommandResult(command=tuple(command), returncode=1, stdout="", stderr="boom")
-
     pipe = Pipeline(out_root=tmp_path, command_runner=failing)
     result = pipe.run(_GOOD_INTENT, execute=True)
-
     assert result.status == "failed"
     solve = next(s for s in result.stages if s.name == "solve")
     assert solve.status == "failed"
@@ -493,25 +474,17 @@ def test_run_execute_records_solver_failure(
 
 def test_run_execute_bypasses_resume(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from aerosynthx.workflow import pipeline as pipe_mod
-
     monkeypatch.setattr(pipe_mod, "openfoam_available", lambda: False)
     pipe = Pipeline(out_root=tmp_path)
-    pipe.run(_GOOD_INTENT)  # completes & caches (5 stages, no solve)
-    # execute=True must re-run and add the solve stage despite the cache.
+    pipe.run(_GOOD_INTENT)
     result = pipe.run(_GOOD_INTENT, execute=True)
     assert len(result.stages) == 6
 
 
-# --- Phase 13: timeout + cancellation ---------------------------------
-
-
 class _FakeClock:
-    """A deterministic monotonic clock driven by a value queue."""
-
     def __init__(self, *values: float) -> None:
         self._values = list(values)
         self._last = values[-1] if values else 0.0
-
     def __call__(self) -> float:
         if self._values:
             self._last = self._values.pop(0)
@@ -519,10 +492,8 @@ class _FakeClock:
 
 
 def test_run_times_out_at_first_stage(tmp_path: Path) -> None:
-    # clock: start() -> 0.0 (deadline = 1.0); parse check -> 100.0 (expired).
     pipe = Pipeline(out_root=tmp_path, clock=_FakeClock(0.0, 100.0))
     result = pipe.run(_GOOD_INTENT, timeout=1.0)
-
     assert result.status == "failed"
     parse = next(s for s in result.stages if s.name == "parse")
     assert parse.status == "failed"
@@ -532,10 +503,8 @@ def test_run_times_out_at_first_stage(tmp_path: Path) -> None:
 
 
 def test_run_times_out_at_later_stage(tmp_path: Path) -> None:
-    # start -> 0.0, parse check -> 0.0 (live), compute check -> 100.0 (expired).
     pipe = Pipeline(out_root=tmp_path, clock=_FakeClock(0.0, 0.0, 100.0))
     result = pipe.run(_GOOD_INTENT, timeout=1.0)
-
     assert result.status == "failed"
     assert next(s for s in result.stages if s.name == "parse").status == "ok"
     compute = next(s for s in result.stages if s.name == "compute")
@@ -548,7 +517,6 @@ def test_run_cancelled_fails_at_parse(tmp_path: Path) -> None:
     token.cancel()
     pipe = Pipeline(out_root=tmp_path)
     result = pipe.run(_GOOD_INTENT, cancel_token=token)
-
     assert result.status == "failed"
     parse = next(s for s in result.stages if s.name == "parse")
     assert parse.status == "failed"
@@ -556,7 +524,6 @@ def test_run_cancelled_fails_at_parse(tmp_path: Path) -> None:
 
 
 def test_run_completes_with_generous_timeout(tmp_path: Path) -> None:
-    # Constant-zero clock never advances past the deadline.
     pipe = Pipeline(out_root=tmp_path, clock=_FakeClock(0.0))
     result = pipe.run(_GOOD_INTENT, timeout=60.0)
     assert result.status == "completed"
@@ -567,25 +534,17 @@ def test_execute_caps_solver_timeout_to_budget(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from collections.abc import Sequence
-
     from aerosynthx.openfoam.runner import CommandResult
     from aerosynthx.workflow import pipeline as pipe_mod
-
     monkeypatch.setattr(pipe_mod, "openfoam_available", lambda: True)
     seen: dict[str, float] = {}
-
     def runner(command: Sequence[str], *, cwd: Path, timeout: float) -> CommandResult:
         seen["timeout"] = timeout
         return CommandResult(command=tuple(command), returncode=0, stdout="", stderr="")
-
     pipe = Pipeline(out_root=tmp_path, command_runner=runner, clock=_FakeClock(0.0))
     result = pipe.run(_GOOD_INTENT, execute=True, timeout=30.0)
-
     assert result.status == "completed"
     assert seen["timeout"] == 30.0
-
-
-# --- Phase 14: run deletion -------------------------------------------
 
 
 def test_delete_run_removes_record_and_artifacts(tmp_path: Path) -> None:
@@ -593,7 +552,6 @@ def test_delete_run_removes_record_and_artifacts(tmp_path: Path) -> None:
     result = pipe.run(_GOOD_INTENT)
     run_dir = tmp_path / "runs" / result.run_id
     assert run_dir.is_dir()
-
     assert pipe.delete_run(result.run_id) is True
     assert not run_dir.exists()
     assert load_run(pipe.db_path, result.run_id) is None
@@ -601,7 +559,7 @@ def test_delete_run_removes_record_and_artifacts(tmp_path: Path) -> None:
 
 def test_delete_run_missing_returns_false(tmp_path: Path) -> None:
     pipe = Pipeline(out_root=tmp_path)
-    pipe.run(_GOOD_INTENT)  # create the store so the db file exists
+    pipe.run(_GOOD_INTENT)
     assert pipe.delete_run("ffffffffffffffff") is False
 
 
@@ -612,55 +570,45 @@ def test_delete_run_without_store_returns_false(tmp_path: Path) -> None:
 
 def test_delete_run_cleans_orphan_directory(tmp_path: Path) -> None:
     pipe = Pipeline(out_root=tmp_path)
-    pipe.run(_GOOD_INTENT)  # ensure the store file exists
+    pipe.run(_GOOD_INTENT)
     orphan = tmp_path / "runs" / "orphan00000000"
     orphan.mkdir(parents=True)
     (orphan / "stray.txt").write_text("x")
-
-    # No store record, but the directory is cleaned up best-effort.
     assert pipe.delete_run("orphan00000000") is False
     assert not orphan.exists()
 
 
 def test_concurrent_same_intent_builds_once(tmp_path: Path) -> None:
     import threading
-
     build_count = 0
     count_guard = threading.Lock()
-
     class _CountingPipeline(Pipeline):
-        def _run_uncached(self, *args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        def _run_uncached(self, *args: object, **kwargs: object):
             nonlocal build_count
             with count_guard:
                 build_count += 1
-            return super()._run_uncached(*args, **kwargs)  # type: ignore[arg-type]
-
+            return super()._run_uncached(*args, **kwargs)
     pipe = _CountingPipeline(out_root=tmp_path)
     start = threading.Barrier(2)
     results: list[object] = []
     results_guard = threading.Lock()
-
     def worker() -> None:
         start.wait()
         result = pipe.run(_GOOD_INTENT)
         with results_guard:
             results.append(result)
-
     threads = [threading.Thread(target=worker) for _ in range(2)]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-
-    # The second caller queued behind the lock and resumed the cached run.
     assert build_count == 1
-    run_ids = {r.run_id for r in results}  # type: ignore[attr-defined]
+    run_ids = {r.run_id for r in results}
     assert len(run_ids) == 1
 
 
 def test_concurrent_distinct_intents_both_build(tmp_path: Path) -> None:
     import threading
-
     pipe = Pipeline(out_root=tmp_path)
     intents = [
         "NACA 2412 at 50 m/s, alpha 3 deg, chord 1.0 m.",
@@ -669,18 +617,15 @@ def test_concurrent_distinct_intents_both_build(tmp_path: Path) -> None:
     start = threading.Barrier(2)
     results: dict[str, object] = {}
     results_guard = threading.Lock()
-
     def worker(text: str) -> None:
         start.wait()
         result = pipe.run(text)
         with results_guard:
             results[text] = result
-
     threads = [threading.Thread(target=worker, args=(text,)) for text in intents]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-
-    assert {r.status for r in results.values()} == {"completed"}  # type: ignore[attr-defined]
-    assert len({r.run_id for r in results.values()}) == 2  # type: ignore[attr-defined]
+    assert {r.status for r in results.values()} == {"completed"}
+    assert len({r.run_id for r in results.values()}) == 2

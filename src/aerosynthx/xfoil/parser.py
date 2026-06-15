@@ -15,25 +15,19 @@ class XfoilResult:
     cm: float
 
 
-def parse_polar_file(content: str, target_alpha: float | None = None) -> XfoilResult:
+def parse_polar_file(content: str) -> list[XfoilResult]:
     """
-    Parses an XFOIL polar file and extracts the aerodynamic coefficients.
-
-    If target_alpha is provided, it attempts to find the exact row matching
-    that alpha. Otherwise, it returns the first data row.
+    Parses an XFOIL polar file and extracts the aerodynamic coefficients for all data rows.
 
     Args:
         content: The raw text content of the XFOIL polar file.
-        target_alpha: The angle of attack to look for (optional).
 
     Returns:
-        An XfoilResult dataclass.
-
-    Raises:
-        XfoilParseError: If the file is malformed or no data is found.
+        A list of XfoilResult dataclasses.
     """
     lines = content.strip().splitlines()
     data_started = False
+    results = []
 
     for line in lines:
         if "------" in line:
@@ -50,22 +44,9 @@ def parse_polar_file(content: str, target_alpha: float | None = None) -> XfoilRe
                     cl = float(parts[1])
                     cd = float(parts[2])
                     cm = float(parts[4])
+                    results.append(XfoilResult(alpha_deg=alpha, cl=cl, cd=cd, cm=cm))
+                except (ValueError, IndexError):
+                    # Skip lines that can't be parsed
+                    continue
 
-                    if target_alpha is not None:
-                        # Allow a small tolerance for floating point matching
-                        if abs(alpha - target_alpha) < 1e-4:
-                            return XfoilResult(alpha_deg=alpha, cl=cl, cd=cd, cm=cm)
-                    else:
-                        return XfoilResult(alpha_deg=alpha, cl=cl, cd=cd, cm=cm)
-                except ValueError:
-                    continue # Skip lines that can't be parsed
-
-    if target_alpha is not None:
-         raise XfoilParseError(
-            f"No data found in XFOIL polar file for alpha = {target_alpha}",
-            code="xfoil.parse.no_data_for_alpha",
-        )
-    raise XfoilParseError(
-        "No data rows found in XFOIL polar file.",
-        code="xfoil.parse.empty_polar",
-    )
+    return results
