@@ -41,16 +41,43 @@
       `;
       tbody.appendChild(tr);
     }
-    const ul = $("#files");
-    ul.innerHTML = "";
-    if (result.status === "completed") {
+
+    // Handle OpenFOAM files
+    const filesUl = $("#files");
+    filesUl.innerHTML = "";
+    if (result.case_dir) {
+      filesUl.parentElement.hidden = false;
       jget(`/api/v1/runs/${result.run_id}/files`).then(({ files }) => {
         for (const f of files) {
           const li = document.createElement("li");
           li.innerHTML = `<a href="/api/v1/runs/${result.run_id}/files/${f}" target="_blank">${f}</a>`;
-          ul.appendChild(li);
+          filesUl.appendChild(li);
         }
       });
+    } else {
+      filesUl.parentElement.hidden = true;
+    }
+
+    // Handle XFOIL results
+    const xfoilTable = $("#xfoil-results");
+    const xfoilTbody = xfoilTable.querySelector("tbody");
+    xfoilTbody.innerHTML = "";
+    if (result.xfoil_results && result.xfoil_results.length > 0) {
+      xfoilTable.hidden = false;
+      xfoilTable.previousElementSibling.hidden = false; // Show "XFOIL Results" heading
+      for (const row of result.xfoil_results) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${row.alpha_deg.toFixed(3)}</td>
+          <td>${row.cl.toFixed(4)}</td>
+          <td>${row.cd.toFixed(5)}</td>
+          <td>${row.cm.toFixed(4)}</td>
+        `;
+        xfoilTbody.appendChild(tr);
+      }
+    } else {
+      xfoilTable.hidden = true;
+      xfoilTable.previousElementSibling.hidden = true;
     }
   }
 
@@ -100,6 +127,7 @@
     const body = {
       intent_text: $("#intent-text").value,
       resume: $("#resume").checked,
+      analysis_mode: $("#analysis-mode").value,
     };
     const r = await fetch("/api/v1/runs", {
       method: "POST",

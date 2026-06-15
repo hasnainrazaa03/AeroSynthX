@@ -9,7 +9,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from aerosynthx.study import StudyRunner, StudySpec
+from aerosynthx.study import StudyRunner, StudySpec, StudyResult
 from aerosynthx.study.report import render_study_report
 from aerosynthx.workflow.db import open_session, StudyRow
 from aerosynthx.workflow.errors import RunNotFoundError, StageError
@@ -152,7 +152,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _print_result(result: RunResult | StudyResult) -> None:
-    sys.stdout.write(json.dumps(result.model_dump(), indent=2, sort_keys=True) + "\n")
+    if isinstance(result, RunResult):
+        data = result.to_json()
+    else:
+        data = result.model_dump()
+    sys.stdout.write(json.dumps(data, indent=2, sort_keys=True) + "\n")
 
 
 def _progress_to_stderr(event: ProgressEvent) -> None:
