@@ -9,8 +9,11 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from aerosynthx.study import StudyRunner, StudySpec
+from aerosynthx.study.report import render_study_report
+from aerosynthx.workflow.db import open_session, StudyRow
 from aerosynthx.workflow.errors import RunNotFoundError, StageError
-from aerosynthx.workflow.pipeline import Pipeline, RunResult, load_run
+from aerosynthx.workflow.pipeline import Pipeline, RunResult, load_run, query_runs
 from aerosynthx.workflow.progress import ProgressEvent
 from aerosynthx.workflow.report import render_run_report
 
@@ -74,6 +77,10 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Stream stage progress events to stderr as the run executes.",
     )
+
+    study_p = sub.add_parser("study", help="Run a parametric study.")
+    study_p.add_argument("spec_file", type=Path, help="Path to the study specification JSON file.")
+    study_p.add_argument("--out", required=True, type=Path, help="Output directory for the study.")
 
     show_p = sub.add_parser("show", help="Print a persisted run as JSON to stdout.")
     show_p.add_argument("run_id", help="Run id returned by `run`.")
@@ -144,8 +151,8 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _print_result(result: RunResult) -> None:
-    sys.stdout.write(json.dumps(result.to_json(), indent=2, sort_keys=True) + "\n")
+def _print_result(result: RunResult | StudyResult) -> None:
+    sys.stdout.write(json.dumps(result.model_dump(), indent=2, sort_keys=True) + "\n")
 
 
 def _progress_to_stderr(event: ProgressEvent) -> None:
@@ -184,6 +191,15 @@ def _cmd_run(args: argparse.Namespace) -> int:
         return 2
     _print_result(result)
     return 0 if result.status == "completed" else 1
+
+
+def _cmd_study(args: argparse.Namespace) -> int:
+    pipeline = Pipeline(out_root=args.out)
+    runner = StudyRunner(pipeline)
+    spec = StudySpec.model_validate_json(args.spec_file.read_text())
+    result = runner.run(spec)
+    _print_result(result)
+    return 0
 
 
 def _cmd_show(args: argparse.Namespace) -> int:
@@ -240,12 +256,9 @@ def _cmd_relink(args: argparse.Namespace) -> int:
 
 
 def _cmd_serve(args: argparse.Namespace) -> int:
-    # Imports deferred so `aerosynthx run`/`show` do not pay the FastAPI cost.
     import uvicorn
-
     from aerosynthx.api import create_app
     from aerosynthx.intent import build_client_from_env
-
     app = create_app(
         out_root=args.out,
         llm_client=build_client_from_env(),
@@ -264,6 +277,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     _configure_logging(args.verbose)
     if args.command == "run":
         return _cmd_run(args)
+    if args.command == "study":
+        return _cmd_study(args)
     if args.command == "show":
         return _cmd_show(args)
     if args.command == "delete":
@@ -274,11 +289,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_prune(args)
     if args.command == "relink":
         return _cmd_relink(args)
-    if args.command == "serve":  # pragma: no branch - argparse enforces choice
+    if args.command == "serve":
         return _cmd_serve(args)
-    parser.error(f"unknown command: {args.command}")  # pragma: no cover
-    return 2  # pragma: no cover
+    parser.error(f"unknown command: {args.command}")
+    return 2
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     raise SystemExit(main())

@@ -22,12 +22,28 @@ class Base(DeclarativeBase):
     """Declarative base for AeroSynthX persistence models."""
 
 
+class StudyRow(Base):
+    """One row per study."""
+
+    __tablename__ = "studies"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    spec_json: Mapped[str] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String)
+    created_at_iso: Mapped[str] = mapped_column(String)
+    completed_at_iso: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    runs: Mapped[list[RunRow]] = relationship(back_populates="study")
+
+
 class RunRow(Base):
     """One row per :class:`RunResult` persisted to disk."""
 
     __tablename__ = "runs"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    study_id: Mapped[str | None] = mapped_column(ForeignKey("studies.id"), index=True, nullable=True)
     intent_text: Mapped[str] = mapped_column(String)
     intent_json: Mapped[str | None] = mapped_column(String, nullable=True)
     flow_state_json: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -37,6 +53,7 @@ class RunRow(Base):
     created_at_iso: Mapped[str] = mapped_column(String)
     completed_at_iso: Mapped[str | None] = mapped_column(String, nullable=True)
 
+    study: Mapped[StudyRow | None] = relationship(back_populates="runs")
     stages: Mapped[list[StageRow]] = relationship(
         back_populates="run",
         cascade="all, delete-orphan",

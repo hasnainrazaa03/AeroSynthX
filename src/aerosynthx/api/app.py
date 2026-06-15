@@ -26,6 +26,9 @@ from aerosynthx.api.security import ApiKeyStore, Scope, make_api_key_dependency
 from aerosynthx.api.sse import run_event_stream
 from aerosynthx.intent import LLMClient
 from aerosynthx.observability import METRICS, bind_correlation_id, render_prometheus
+from aerosynthx.study import StudyRunner, StudySpec
+from aerosynthx.study.report import render_study_report
+from aerosynthx.workflow.db import open_session, StudyRow
 from aerosynthx.workflow.errors import StageError
 from aerosynthx.workflow.pipeline import Pipeline, load_run, query_runs
 from aerosynthx.workflow.report import render_run_report
@@ -115,6 +118,7 @@ def create_app(
     llm_pipeline = (
         Pipeline(out_root=out_root, llm_client=llm_client) if llm_client is not None else pipeline
     )
+    study_runner = StudyRunner(pipeline)
     store = ApiKeyStore.from_keys(api_keys) if api_keys is not None else ApiKeyStore.from_env()
     auth_read = Depends(make_api_key_dependency(store, required_scope=Scope.READ))
     auth_run = Depends(make_api_key_dependency(store, required_scope=Scope.RUN))
@@ -130,9 +134,6 @@ def create_app(
         version=__version__,
         description="HTTP API for the AeroSynthX workflow orchestrator.",
     )
-    # Order matters: ObservabilityMiddleware is added last so it is the
-    # outermost layer and still records correlation ids + metrics for
-    # responses short-circuited by the rate/body guard.
     app.add_middleware(
         RateLimitMiddleware,
         limiter=limits.build_limiter(),
@@ -156,6 +157,61 @@ def create_app(
     @app.get("/api/v1/version", response_model=VersionInfo, tags=["meta"])
     def version() -> VersionInfo:
         return VersionInfo(name="aerosynthx", version=__version__)
+
+    # -------- studies --------------------------------------------------
+
+    @app.post(
+        "/api/v1/studies",
+        tags=["studies"],
+        status_code=status.HTTP_201_CREATED,
+        dependencies=[auth_run],
+    )
+    def create_study(body: StudySpec) -> dict[str, Any]:
+        result = study_runner.run(body)
+        return result.model_dump()
+
+    @app.get("/api/v1/studies/{study_id}", tags=["studies"], dependencies=[auth_read])
+    def get_study(study_id: str) -> dict[str, Any]:
+        with open_session(pipeline.db_path) as session:
+            study_row = session.get(StudyRow, study_id)
+            if not study_row:
+                raise HTTPException(status_code=404, detail="Study not found")
+
+            runs = [load_run(pipeline.db_path, run.id) for run in study_row.runs]
+            spec = StudySpec.model_validate_json(study_row.spec_json)
+
+            result = StudyResult(
+                study_id=study_row.id,
+                study_name=study_row.name,
+                spec=spec,
+                status=study_row.status,
+                runs=[r for r in runs if r is not None],
+            )
+            return result.model_dump()
+
+    @app.get(
+        "/api/v1/studies/{study_id}/report",
+        tags=["studies"],
+        dependencies=[auth_read],
+        response_class=HTMLResponse,
+    )
+    def get_study_report(study_id: str) -> HTMLResponse:
+        with open_session(pipeline.db_path) as session:
+            study_row = session.get(StudyRow, study_id)
+            if not study_row:
+                raise HTTPException(status_code=404, detail="Study not found")
+
+            runs = [load_run(pipeline.db_path, run.id) for run in study_row.runs]
+            spec = StudySpec.model_validate_json(study_row.spec_json)
+
+            result = StudyResult(
+                study_id=study_row.id,
+                study_name=study_row.name,
+                spec=spec,
+                status=study_row.status,
+                runs=[r for r in runs if r is not None],
+            )
+            return HTMLResponse(content=render_study_report(result))
 
     # -------- runs -----------------------------------------------------
 
