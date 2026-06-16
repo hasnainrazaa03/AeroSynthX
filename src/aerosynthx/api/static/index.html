@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AeroSynthX</title>
     <link rel="stylesheet" href="/static/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   </head>
   <body>
     <header>
@@ -17,33 +18,71 @@
     </header>
 
     <main>
-      <section class="panel">
-        <h2>Design intent</h2>
-        <form id="intent-form">
-          <textarea
-            id="intent-text"
-            rows="3"
-            placeholder="e.g. NACA 2412 at 50 m/s, alpha 3 deg, chord 1.0 m."
-          ></textarea>
-          <div class="row">
-            <div>
-              <label for="analysis-mode">Mode:</label>
-              <select id="analysis-mode" style="margin-right: 1em;">
-                <option value="openfoam" selected>OpenFOAM (High-Fidelity)</option>
-                <option value="xfoil">XFOIL (Fast Analysis)</option>
-              </select>
-              <label>
-                <input type="checkbox" id="resume" checked />
-                resume
-              </label>
+      <div class="tabs">
+        <button class="tab-link active" data-tab="single-run">Single Run</button>
+        <button class="tab-link" data-tab="study">Parametric Study</button>
+        <button class="tab-link" data-tab="optimization">Optimization</button>
+      </div>
+
+      <!-- Single Run Tab -->
+      <div id="single-run" class="tab-content active">
+        <section class="panel">
+          <h2>Design Intent</h2>
+          <form id="intent-form">
+            <textarea id="intent-text" rows="3" placeholder="e.g. NACA 2412 at 50 m/s, alpha 3 deg, chord 1.0 m."></textarea>
+            <div class="row">
+              <div>
+                <label for="analysis-mode">Mode:</label>
+                <select id="analysis-mode" style="margin-right: 1em;">
+                  <option value="openfoam" selected>OpenFOAM</option>
+                  <option value="xfoil">XFOIL</option>
+                </select>
+                <label><input type="checkbox" id="resume" checked /> resume</label>
+              </div>
+              <button type="submit" id="run-btn">
+                <span id="run-spinner" class="loader" hidden></span> Run
+              </button>
             </div>
-            <button type="submit" id="run-btn">
-              <span id="run-spinner" class="loader" hidden style="vertical-align: middle; margin-right: 5px; width: 12px; height: 12px; border-width: 2px;"></span>
-              Run pipeline
+          </form>
+        </section>
+      </div>
+
+      <!-- Study Tab -->
+      <div id="study" class="tab-content" hidden>
+        <section class="panel">
+          <h2>Parametric Study</h2>
+          <form id="study-form">
+            <input type="text" id="study-name" placeholder="Study Name" required />
+            <textarea id="study-base-intent" rows="3" placeholder="Base intent JSON..."></textarea>
+            <div id="study-variables"></div>
+            <button type="button" id="add-study-variable">Add Variable</button>
+            <button type="submit" id="run-study-btn">
+              <span id="study-spinner" class="loader" hidden></span> Run Study
             </button>
-          </div>
-        </form>
-      </section>
+          </form>
+        </section>
+      </div>
+
+      <!-- Optimization Tab -->
+      <div id="optimization" class="tab-content" hidden>
+          <section class="panel">
+              <h2>Optimization</h2>
+              <form id="opt-form">
+                  <select id="opt-objective">
+                      <option value="maximize_cl_cd">Maximize Cl/Cd</option>
+                      <option value="minimize_cd">Minimize Cd</option>
+                      <option value="target_cl">Target Cl</option>
+                  </select>
+                  <input type="number" id="opt-target-cl" placeholder="Target Cl" hidden/>
+                  <textarea id="opt-base-intent" rows="3" placeholder="Base intent JSON..."></textarea>
+                  <div id="opt-variables"></div>
+                  <button type="button" id="add-opt-variable">Add Variable</button>
+                  <button type="submit" id="run-opt-btn">
+                      <span id="opt-spinner" class="loader" hidden></span> Run Optimization
+                  </button>
+              </form>
+          </section>
+      </div>
 
       <section class="panel" id="result-panel" hidden>
         <h2>Result</h2>
@@ -59,7 +98,8 @@
           <h3>Case files</h3>
           <ul id="files"></ul>
           <h3>XFOIL Results</h3>
-          <table id="xfoil-results" hidden>
+          <canvas id="xfoil-chart" hidden></canvas>
+          <table id="xfoil-results">
             <thead>
               <tr><th data-sort="alpha">Alpha (deg)</th><th data-sort="cl">Cl</th><th data-sort="cd">Cd</th><th data-sort="cm">Cm</th></tr>
             </thead>
@@ -69,7 +109,7 @@
       </section>
 
       <section class="panel" style="grid-column: 1 / -1;">
-        <h2>Run history <span id="history-spinner" class="loader" hidden style="margin-left: 10px; width: 16px; height: 16px; border-width: 3px;"></span></h2>
+        <h2>Run History <span id="history-spinner" class="loader" hidden></span></h2>
         <div class="runs-controls">
           <input id="runs-search" type="search" placeholder="Search intent text (live)…" style="flex-grow: 1;" />
           <select id="runs-status">

@@ -1,103 +1,56 @@
-// AeroSynthX minimal UI -- vanilla JS, no framework.
+// AeroSynthX modern UI
 (() => {
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
 
-  const runsState = { offset: 0, limit: 15, total: 0 };
+  const runsState = { offset: 0, limit: 10, total: 0 };
   let searchTimeout = null;
+  let xfoilChart = null;
 
-  // Initialize API Key from local storage
+  // --- API & State Management ---
   const apiKeyInput = $("#api-key");
-  const storedKey = localStorage.getItem("aerosynthx_api_key");
-  if (storedKey) apiKeyInput.value = storedKey;
-
-  apiKeyInput.addEventListener("input", (e) => {
-    localStorage.setItem("aerosynthx_api_key", e.target.value.trim());
-  });
+  apiKeyInput.value = localStorage.getItem("aerosynthx_api_key") || "";
+  apiKeyInput.addEventListener("input", (e) => localStorage.setItem("aerosynthx_api_key", e.target.value.trim()));
 
   function getHeaders() {
     const headers = { "Content-Type": "application/json" };
     const key = apiKeyInput.value.trim();
-    if (key) {
-      headers["X-API-Key"] = key;
-    }
+    if (key) headers["X-API-Key"] = key;
     return headers;
   }
 
-  async function jget(url) {
-    const r = await fetch(url, { headers: getHeaders() });
+  async function apiCall(url, options = {}) {
+    const r = await fetch(url, { headers: getHeaders(), ...options });
     if (!r.ok) {
-        if (r.status === 401) throw new Error("Unauthorized (Check API Key)");
+      if (r.status === 401) throw new Error("Unauthorized (Check API Key)");
+      try {
+        const err = await r.json();
+        throw new Error(err.detail.message || JSON.stringify(err.detail));
+      } catch {
         throw new Error(`${r.status} ${r.statusText}`);
+      }
     }
     return r.json();
   }
 
-  async function loadVersion() {
-    try {
-      const v = await jget("/api/v1/version");
-      $("#version").textContent = `v${v.version}`;
-    } catch {
-      $("#version").textContent = "offline";
-    }
-  }
-
-  function sortTable(tableId, columnSelector, isNumeric) {
-      const tbody = $(`#${tableId} tbody`);
-      const rows = Array.from(tbody.querySelectorAll("tr"));
-      const th = $(`#${tableId} th[data-sort="${columnSelector}"]`);
-
-      let asc = th.dataset.asc === "true";
-      asc = !asc;
-      th.dataset.asc = asc;
-
-      // Reset other headers
-      $$(`#${tableId} th[data-sort]`).forEach(h => {
-          if (h !== th) h.dataset.asc = "";
-      });
-
-      const idx = Array.from(th.parentNode.children).indexOf(th);
-
-      rows.sort((a, b) => {
-          let valA = a.children[idx].innerText.trim();
-          let valB = b.children[idx].innerText.trim();
-
-          if (isNumeric) {
-              valA = parseFloat(valA) || 0;
-              valB = parseFloat(valB) || 0;
-              return asc ? valA - valB : valB - valA;
-          } else {
-              return asc ? valA.localeCompare(valB) : valB.localeCompare(valA);
-          }
-      });
-
-      tbody.innerHTML = "";
-      rows.forEach(r => tbody.appendChild(r));
-  }
-
+  // --- UI Rendering ---
   function renderResult(result) {
-    const panel = $("#result-panel");
-    panel.hidden = false;
-
-    let reportLink = "";
-    if (result.status === "completed") {
-        const keyQuery = apiKeyInput.value.trim() ? `?api_key=${encodeURIComponent(apiKeyInput.value.trim())}` : '';
-        // Note: passing api_key in URL is not secure for real deployments, but works for this simple UI demo if backend supports it or if we just rely on the browser opening it without auth.
-        // For strict header auth, the report should be downloaded via fetch and rendered.
-        reportLink = `<p><a href="/api/v1/runs/${result.run_id}/report" target="_blank" rel="noopener">Download report</a></p>`;
-    }
-
+    $("#result-panel").hidden = false;
     $("#result-summary").innerHTML = `
       <p><strong>Run ID:</strong> <code>${result.run_id}</code></p>
-      <p><strong>Status:</strong>
-        <span class="status-${result.status}">${result.status}</span></p>
+      <p><strong>Status:</strong> <span class="status-${result.status}">${result.status}</span></p>
       ${result.case_dir ? `<p><strong>Case:</strong> <code>${result.case_dir}</code></p>` : ""}
-      ${reportLink}
+      ${result.status === "completed" ? `<p><a href="/api/v1/runs/${result.run_id}/report" target="_blank">Download Report</a></p>` : ""}
     `;
+    renderStages(result.stages);
+    renderFiles(result);
+    renderXfoilResults(result);
+  }
 
+  function renderStages(stages) {
     const tbody = $("#stages tbody");
     tbody.innerHTML = "";
-    for (const s of result.stages) {
+    for (const s of stages) {
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${s.name}</td>
@@ -108,33 +61,36 @@
       `;
       tbody.appendChild(tr);
     }
+  }
 
-    // Handle OpenFOAM files
+  function renderFiles(result) {
     const filesUl = $("#files");
     filesUl.innerHTML = "";
+    const container = filesUl.parentElement;
     if (result.case_dir && result.status === "completed") {
-      filesUl.parentElement.hidden = false;
-      filesUl.previousElementSibling.hidden = false;
-      jget(`/api/v1/runs/${result.run_id}/files`).then(({ files }) => {
-        for (const f of files) {
+      container.hidden = false;
+      apiCall(`/api/v1/runs/${result.run_id}/files`).then(({ files }) => {
+        files.forEach(f => {
           const li = document.createElement("li");
           li.innerHTML = `<a href="/api/v1/runs/${result.run_id}/files/${f}" target="_blank">${f}</a>`;
           filesUl.appendChild(li);
-        }
+        });
       });
     } else {
-      filesUl.hidden = true;
-      filesUl.previousElementSibling.hidden = true;
+      container.hidden = true;
     }
+  }
 
-    // Handle XFOIL results
-    const xfoilTable = $("#xfoil-results");
-    const xfoilTbody = xfoilTable.querySelector("tbody");
-    xfoilTbody.innerHTML = "";
+  function renderXfoilResults(result) {
+    const table = $("#xfoil-results");
+    const chartCanvas = $("#xfoil-chart");
+    const tbody = table.querySelector("tbody");
+    tbody.innerHTML = "";
+
     if (result.xfoil_results && result.xfoil_results.length > 0) {
-      xfoilTable.hidden = false;
-      xfoilTable.previousElementSibling.hidden = false; // Show "XFOIL Results" heading
-      for (const row of result.xfoil_results) {
+      table.hidden = false;
+      chartCanvas.hidden = false;
+      result.xfoil_results.forEach(row => {
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td>${row.alpha_deg.toFixed(3)}</td>
@@ -142,62 +98,86 @@
           <td>${row.cd.toFixed(5)}</td>
           <td>${row.cm.toFixed(4)}</td>
         `;
-        xfoilTbody.appendChild(tr);
-      }
+        tbody.appendChild(tr);
+      });
+      renderChart(result.xfoil_results);
     } else {
-      xfoilTable.hidden = true;
-      xfoilTable.previousElementSibling.hidden = true;
+      table.hidden = true;
+      chartCanvas.hidden = true;
     }
   }
 
+  function renderChart(data) {
+    const ctx = $("#xfoil-chart").getContext("2d");
+    if (xfoilChart) xfoilChart.destroy();
+    xfoilChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: data.map(r => r.alpha_deg.toFixed(2)),
+        datasets: [{
+          label: 'Cl',
+          data: data.map(r => r.cl),
+          borderColor: '#7aa2f7',
+          yAxisID: 'y'
+        }, {
+          label: 'Cd',
+          data: data.map(r => r.cd),
+          borderColor: '#f7768e',
+          yAxisID: 'y1'
+        }]
+      },
+      options: {
+        scales: {
+          y: { position: 'left', ticks: { color: '#c0caf5' } },
+          y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#c0caf5' } }
+        },
+        plugins: { legend: { labels: { color: '#c0caf5' } } }
+      }
+    });
+  }
+
   async function loadRuns() {
-    const tbody = $("#runs tbody");
     const spinner = $("#history-spinner");
     spinner.hidden = false;
-
     try {
-        const params = new URLSearchParams();
-        params.set("limit", String(runsState.limit));
-        params.set("offset", String(runsState.offset));
-        const q = $("#runs-search").value.trim();
-        if (q) params.set("q", q);
-        const status = $("#runs-status").value;
-        if (status) params.set("status", status);
+      const params = new URLSearchParams({ limit: runsState.limit, offset: runsState.offset });
+      const q = $("#runs-search").value.trim();
+      if (q) params.set("q", q);
+      const status = $("#runs-status").value;
+      if (status) params.set("status", status);
 
-        const r = await fetch(`/api/v1/runs?${params.toString()}`, { headers: getHeaders() });
-        if (!r.ok) {
-            if (r.status === 401) throw new Error("Unauthorized (Check API Key)");
-            throw new Error(`${r.status} ${r.statusText}`);
-        }
+      const r = await fetch(`/api/v1/runs?${params.toString()}`, { headers: getHeaders() });
+      if (!r.ok) throw new Error(`Failed to load history: ${r.status}`);
 
-        runsState.total = Number(r.headers.get("X-Total-Count") || "0");
-        const runs = await r.json();
+      runsState.total = Number(r.headers.get("X-Total-Count") || "0");
+      const runs = await r.json();
 
-        tbody.innerHTML = "";
-        for (const row of runs) {
-          const tr = document.createElement("tr");
-          tr.innerHTML = `
-            <td><a href="#" data-id="${row.run_id}">${row.run_id}</a></td>
-            <td class="status-${row.status}">${row.status}</td>
-            <td>${row.created_at_iso}</td>
-            <td>${row.intent_text}</td>
-            <td><a href="/api/v1/runs/${row.run_id}/report" target="_blank" rel="noopener">Report</a></td>
-          `;
-          tr.querySelector("a").addEventListener("click", async (e) => {
-            e.preventDefault();
-            try {
-                renderResult(await jget(`/api/v1/runs/${row.run_id}`));
-            } catch (err) {
-                alert(`Error loading run: ${err.message}`);
-            }
-          });
-          tbody.appendChild(tr);
-        }
-        updatePager();
+      const tbody = $("#runs tbody");
+      tbody.innerHTML = "";
+      runs.forEach(row => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><a href="#" data-id="${row.run_id}">${row.run_id}</a></td>
+          <td class="status-${row.status}">${row.status}</td>
+          <td>${row.created_at_iso}</td>
+          <td>${row.intent_text}</td>
+          <td><a href="/api/v1/runs/${row.run_id}/report" target="_blank">Report</a></td>
+        `;
+        tr.querySelector("a").addEventListener("click", async (e) => {
+          e.preventDefault();
+          try {
+            renderResult(await apiCall(`/api/v1/runs/${row.run_id}`));
+          } catch (err) {
+            alert(err.message);
+          }
+        });
+        tbody.appendChild(tr);
+      });
+      updatePager();
     } catch (error) {
-        tbody.innerHTML = `<tr><td colspan="5" class="status-failed">Failed to load history: ${error.message}</td></tr>`;
+      $("#runs tbody").innerHTML = `<tr><td colspan="5" class="status-failed">${error.message}</td></tr>`;
     } finally {
-        spinner.hidden = true;
+      spinner.hidden = true;
     }
   }
 
@@ -210,81 +190,79 @@
     $("#runs-next").disabled = offset + limit >= total;
   }
 
+  // --- Event Listeners ---
   $("#intent-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const btn = $("#run-btn");
     const spinner = $("#run-spinner");
-
     btn.disabled = true;
     spinner.hidden = false;
-
     try {
-        const body = {
-          intent_text: $("#intent-text").value,
-          resume: $("#resume").checked,
-          analysis_mode: $("#analysis-mode").value,
-        };
-        const r = await fetch("/api/v1/runs", {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify(body),
-        });
-        if (!r.ok) {
-          if (r.status === 401) throw new Error("Unauthorized (Check API Key)");
-          // Try to get JSON error detail
-          try {
-             const errorData = await r.json();
-             throw new Error(`Run failed: ${errorData.detail.message || JSON.stringify(errorData)}`);
-          } catch(e) {
-             // Fallback to text
-             if(e.message.startsWith("Run failed:")) throw e; // rethrow if it was our json error
-             throw new Error(`Run failed: ${r.status} ${await r.text()}`);
-          }
-        }
-        renderResult(await r.json());
-        runsState.offset = 0;
-        loadRuns();
+      const body = {
+        intent_text: $("#intent-text").value,
+        resume: $("#resume").checked,
+        analysis_mode: $("#analysis-mode").value,
+      };
+      const result = await apiCall("/api/v1/runs", { method: "POST", body: JSON.stringify(body) });
+      renderResult(result);
+      runsState.offset = 0;
+      loadRuns();
     } catch (error) {
-        alert(error.message);
+      alert(error.message);
     } finally {
-        btn.disabled = false;
-        spinner.hidden = true;
+      btn.disabled = false;
+      spinner.hidden = true;
     }
   });
 
-  // Live search
-  $("#runs-search").addEventListener("input", (e) => {
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(() => {
-        runsState.offset = 0;
-        loadRuns();
-    }, 300); // 300ms debounce
+  // Tabs
+  $$(".tab-link").forEach(button => {
+    button.addEventListener("click", () => {
+      const tab = button.dataset.tab;
+      $$(".tab-link").forEach(b => b.classList.remove("active"));
+      $$(".tab-content").forEach(c => c.hidden = c.id !== tab);
+      button.classList.add("active");
+    });
   });
 
+  // Dynamic forms
+  function addVariableRow(containerId) {
+    const container = $(`#${containerId}`);
+    const row = document.createElement("div");
+    row.className = "variable-row";
+    row.innerHTML = `
+      <input type="text" class="variable-key" placeholder="e.g., flow.reynolds_target">
+      <input type="text" class="variable-values" placeholder="e.g., 1e6, 2e6, 3e6">
+      <button type="button" class="remove-btn">-</button>
+    `;
+    row.querySelector(".remove-btn").addEventListener("click", () => row.remove());
+    container.appendChild(row);
+  }
+  $("#add-study-variable").addEventListener("click", () => addVariableRow("study-variables"));
+  $("#add-opt-variable").addEventListener("click", () => addVariableRow("opt-variables"));
+
+  // History search and filter
+  $("#runs-search").addEventListener("input", () => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+      runsState.offset = 0;
+      loadRuns();
+    }, 300);
+  });
   $("#runs-status").addEventListener("change", () => {
     runsState.offset = 0;
     loadRuns();
   });
 
-  $("#runs-prev").addEventListener("click", () => {
-    runsState.offset = Math.max(0, runsState.offset - runsState.limit);
-    loadRuns();
-  });
+  // Pager
+  $("#runs-prev").addEventListener("click", () => { runsState.offset -= runsState.limit; loadRuns(); });
+  $("#runs-next").addEventListener("click", () => { runsState.offset += runsState.limit; loadRuns(); });
 
-  $("#runs-next").addEventListener("click", () => {
-    runsState.offset += runsState.limit;
-    loadRuns();
-  });
+  // Table sorting
+  $$("#stages th[data-sort]").forEach(th => th.addEventListener("click", () => sortTable("stages", th.dataset.sort, th.dataset.sort === "ms")));
+  $$("#xfoil-results th[data-sort]").forEach(th => th.addEventListener("click", () => sortTable("xfoil-results", th.dataset.sort, true)));
 
-  // Table sorting setup
-  $$("#stages th[data-sort]").forEach(th => {
-      th.addEventListener("click", () => sortTable("stages", th.dataset.sort, th.dataset.sort === "ms"));
-  });
-
-  $$("#xfoil-results th[data-sort]").forEach(th => {
-      th.addEventListener("click", () => sortTable("xfoil-results", th.dataset.sort, true));
-  });
-
+  // Initial Load
   loadVersion();
   loadRuns();
 })();
