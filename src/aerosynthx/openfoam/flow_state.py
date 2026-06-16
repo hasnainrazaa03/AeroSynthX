@@ -81,10 +81,17 @@ def derive_flow_state(intent: DesignIntent) -> FlowState:
             f"{MAX_MACH_INCOMPRESSIBLE} (incompressible envelope)",
         )
 
-    alpha = math.radians(intent.flow.angle_of_attack_deg)
+    # For angle of attack, use single point if available, otherwise default to 0 for sweeps
+    aoa_deg = intent.flow.angle_of_attack_deg if intent.flow.angle_of_attack_deg is not None else 0.0
+    alpha = math.radians(aoa_deg)
     velocity_vector = (u * math.cos(alpha), u * math.sin(alpha), 0.0)
 
-    chord = float(intent.airfoil.chord_m)
+    if intent.wing:
+        chord = float(intent.wing.root_airfoil.chord_m)
+    else:
+        assert intent.airfoil is not None
+        chord = float(intent.airfoil.chord_m)
+
     reynolds = u * chord / atm.kinematic_viscosity_m2_s
 
     ti = DEFAULT_TURBULENCE_INTENSITY

@@ -101,14 +101,28 @@ class FlowCondition(BaseModel):
         return self
 
 
+class Assumption(BaseModel):
+    """A single inferred decision the parser made on the user's behalf."""
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    field_path: str = Field(..., description="Dotted path, e.g. 'flow.altitude_m'.")
+    value: Any
+    reason: str
+
+
+class ProvenanceMap(BaseModel):
+    """Map of dotted field paths to their provenance tag."""
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    fields: dict[str, Provenance]
+
+
 class DesignIntent(BaseModel):
     """A complete, validated design intent."""
     model_config = ConfigDict(extra="forbid", frozen=True)
     airfoil: AirfoilSpec | None = None
     wing: WingSpec | None = None
     flow: FlowCondition
-    assumptions: list[Any] = Field(default_factory=list)
-    provenance: Any
+    assumptions: list[Assumption] = Field(default_factory=list)
+    provenance: ProvenanceMap
     notes: str | None = None
 
     @model_validator(mode="after")
