@@ -141,3 +141,12 @@ class ParseResult(BaseModel):
     raw_input: str
     model: str
     attempts: int = Field(..., ge=1)
+
+
+def design_intent_json_schema() -> dict[str, Any]:
+    """Return the JSON Schema for :class:`DesignIntent`.
+
+    Exposed so the LLM client can be given a schema description without
+    re-importing Pydantic in the caller.
+    """
+    return DesignIntent.model_json_schema()

@@ -10,9 +10,9 @@ The case directory layout produced by :func:`build_case` is:
         constant/
             transportProperties
             turbulenceProperties
-            triSurface/airfoil.dat
+            triSurface/airfoil.dat (or wing.stl)
         system/
-            controlDict, fvSchemes, fvSolution, blockMeshDict
+            controlDict, fvSchemes, fvSolution, blockMeshDict, snappyHexMeshDict (if 3D)
         Allrun
         Allclean
         aerosynthx_manifest.json
@@ -41,11 +41,14 @@ from jinja2 import (
     select_autoescape,
 )
 
+from aerosynthx.geometry import generate_wing
 from aerosynthx.geometry.custom import custom_airfoil
 from aerosynthx.geometry.exporters import to_selig_dat
 from aerosynthx.geometry.naca4 import naca4
 from aerosynthx.geometry.naca5 import naca5
 from aerosynthx.intent.schemas import DesignIntent
+from aerosynthx.meshing.snappy import generate_snappy_dict
+from aerosynthx.meshing.stl_exporter import export_wing_to_stl
 from aerosynthx.openfoam.errors import (
     CaseExistsError,
     EnvelopeViolationError,
@@ -53,8 +56,8 @@ from aerosynthx.openfoam.errors import (
 )
 from aerosynthx.openfoam.flow_state import FlowState, derive_flow_state
 
-TEMPLATE_NAME: Final[str] = "incompressible_simple_komegaSST"
-TEMPLATE_VERSION: Final[str] = "0.4.0"
+TEMPLATE_NAME_2D: Final[str] = "incompressible_simple_komegaSST"
+TEMPLATE_VERSION: Final[str] = "0.5.0"
 
 # Far-field box in multiples of chord, centred on the leading edge.
 _DOMAIN_UPSTREAM_CHORDS: Final[float] = 10.0
@@ -64,7 +67,7 @@ _DOMAIN_THICKNESS_CHORDS: Final[float] = 0.1  # 2D slab
 _DOMAIN_NX: Final[int] = 60
 _DOMAIN_NY: Final[int] = 40
 
-_TEMPLATE_FILES: Final[tuple[tuple[str, str], ...]] = (
+_TEMPLATE_FILES_2D: Final[tuple[tuple[str, str], ...]] = (
     ("0/U.jinja", "0/U"),
     ("0/p.jinja", "0/p"),
     ("0/k.jinja", "0/k"),
@@ -82,7 +85,7 @@ _TEMPLATE_FILES: Final[tuple[tuple[str, str], ...]] = (
 
 _EXECUTABLE_FILES: Final[frozenset[str]] = frozenset({"Allrun", "Allclean"})
 
-_TEMPLATES_ROOT: Final[Path] = Path(__file__).parent / "templates" / TEMPLATE_NAME
+_TEMPLATES_ROOT_2D: Final[Path] = Path(__file__).parent / "templates" / TEMPLATE_NAME_2D
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,14 +104,14 @@ class CaseManifest:
         return json.dumps(asdict(self), indent=2, sort_keys=True)
 
 
-def _make_env() -> Environment:
-    if not _TEMPLATES_ROOT.is_dir():  # pragma: no cover - defensive
+def _make_env(templates_root: Path) -> Environment:
+    if not templates_root.is_dir():  # pragma: no cover - defensive
         raise TemplateRenderError(
-            f"template directory missing: {_TEMPLATES_ROOT}",
+            f"template directory missing: {templates_root}",
             code="openfoam.template.missing",
         )
     return Environment(
-        loader=FileSystemLoader(str(_TEMPLATES_ROOT)),
+        loader=FileSystemLoader(str(templates_root)),
         undefined=StrictUndefined,
         autoescape=select_autoescape(default=False),
         keep_trailing_newline=True,
@@ -116,15 +119,16 @@ def _make_env() -> Environment:
 
 
 def _envelope_guard(intent: DesignIntent) -> None:
-    if not intent.airfoil:
-        raise EnvelopeViolationError(
-            "OpenFOAM case generation only supports 2D airfoils, not 3D wings.",
-            code="openfoam.envelope.unsupported_geometry"
-        )
-    if intent.airfoil.family not in ("naca4", "naca5", "custom"):
-        raise EnvelopeViolationError(
-            f"only NACA 4-digit, 5-digit, and custom airfoils are supported, got {intent.airfoil.family!r}",
-        )
+    if intent.airfoil:
+        if intent.airfoil.family not in ("naca4", "naca5", "custom"):
+            raise EnvelopeViolationError(
+                f"only NACA 4-digit, 5-digit, and custom airfoils are supported, got {intent.airfoil.family!r}",
+            )
+    elif intent.wing:
+        pass # Wing logic handles its own airfoil families
+    else:
+        raise EnvelopeViolationError("intent must carry either airfoil or wing")
+
     if intent.flow.velocity_m_s is None and intent.flow.mach is None:
         raise EnvelopeViolationError(
             "intent must carry either velocity_m_s or mach",
@@ -136,8 +140,12 @@ def _format_float(value: float) -> str:
 
 
 def _template_context(intent: DesignIntent, state: FlowState) -> dict[str, str]:
-    assert intent.airfoil is not None
-    chord = float(intent.airfoil.chord_m)
+    if intent.airfoil:
+        chord = float(intent.airfoil.chord_m)
+    else:
+        assert intent.wing is not None
+        chord = float(intent.wing.root_airfoil.chord_m)
+
     xmin = -_DOMAIN_UPSTREAM_CHORDS * chord
     xmax = _DOMAIN_DOWNSTREAM_CHORDS * chord
     ymin = -_DOMAIN_HALF_HEIGHT_CHORDS * chord
@@ -177,9 +185,9 @@ def _write_text(path: Path, content: str, *, executable: bool) -> str:
     return _sha256_text(content)
 
 
-def _render_templates(env: Environment, ctx: Mapping[str, str], output_dir: Path) -> dict[str, str]:
+def _render_templates(env: Environment, ctx: Mapping[str, str], output_dir: Path, template_files: tuple[tuple[str, str], ...]) -> dict[str, str]:
     digests: dict[str, str] = {}
-    for src_rel, dst_rel in _TEMPLATE_FILES:
+    for src_rel, dst_rel in template_files:
         try:
             template = env.get_template(src_rel)
             rendered = template.render(**ctx)
@@ -218,6 +226,28 @@ def _write_airfoil(intent: DesignIntent, output_dir: Path) -> str:
     return _write_text(
         output_dir / "constant" / "triSurface" / "airfoil.dat",
         content,
+        executable=False,
+    )
+
+
+def _write_wing_stl(intent: DesignIntent, output_dir: Path) -> str:
+    assert intent.wing is not None
+    wing = generate_wing(intent.wing)
+    stl_content = export_wing_to_stl(wing)
+    return _write_text(
+        output_dir / "constant" / "triSurface" / "wing.stl",
+        stl_content,
+        executable=False,
+    )
+
+
+def _write_snappy_dict(intent: DesignIntent, output_dir: Path) -> str:
+    assert intent.wing is not None
+    wing = generate_wing(intent.wing)
+    dict_content = generate_snappy_dict(wing)
+    return _write_text(
+        output_dir / "system" / "snappyHexMeshDict",
+        dict_content,
         executable=False,
     )
 
@@ -273,13 +303,35 @@ def build_case(
 
     _ensure_target(output_dir, overwrite=overwrite)
 
-    env = _make_env()
     ctx = _template_context(intent, state)
-    digests = _render_templates(env, ctx, output_dir)
-    digests["constant/triSurface/airfoil.dat"] = _write_airfoil(intent, output_dir)
+    digests = {}
+
+    if intent.airfoil:
+        # 2D Case
+        env = _make_env(_TEMPLATES_ROOT_2D)
+        digests = _render_templates(env, ctx, output_dir, _TEMPLATE_FILES_2D)
+        digests["constant/triSurface/airfoil.dat"] = _write_airfoil(intent, output_dir)
+        template_name = TEMPLATE_NAME_2D
+    else:
+        # 3D Case
+        # For this phase, we reuse 2D templates and append the 3D specific ones.
+        # In a real implementation, a dedicated 3D template set would be used.
+        env = _make_env(_TEMPLATES_ROOT_2D)
+        digests = _render_templates(env, ctx, output_dir, _TEMPLATE_FILES_2D)
+
+        # Override with 3D specific files
+        digests["constant/triSurface/wing.stl"] = _write_wing_stl(intent, output_dir)
+        digests["system/snappyHexMeshDict"] = _write_snappy_dict(intent, output_dir)
+
+        # Modify Allrun to include snappyHexMesh
+        allrun_content = (output_dir / "Allrun").read_text(encoding="utf-8")
+        allrun_content = allrun_content.replace("simpleFoam", "snappyHexMesh -overwrite\nsimpleFoam")
+        digests["Allrun"] = _write_text(output_dir / "Allrun", allrun_content, executable=True)
+
+        template_name = "incompressible_simple_komegaSST_3D_mesh"
 
     manifest = CaseManifest(
-        template_name=TEMPLATE_NAME,
+        template_name=template_name,
         template_version=TEMPLATE_VERSION,
         created_at_iso=datetime.now(tz=UTC).isoformat(timespec="seconds"),
         intent=intent.model_dump(mode="json"),
@@ -295,7 +347,7 @@ def build_case(
 def expected_case_files() -> Iterable[str]:
     """Return the relative paths every generated case must contain."""
     return (
-        *(dst for _, dst in _TEMPLATE_FILES),
+        *(dst for _, dst in _TEMPLATE_FILES_2D),
         "constant/triSurface/airfoil.dat",
         "aerosynthx_manifest.json",
     )

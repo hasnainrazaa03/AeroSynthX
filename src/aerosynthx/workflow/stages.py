@@ -13,16 +13,25 @@ class StageName(StrEnum):
     COMPUTE = "compute"
     GEOMETRY = "geometry"
     WING_GEOMETRY = "wing_geometry"
+    MESH = "mesh"
     CASE = "case"
     SOLVE = "solve"
     XFOIL = "xfoil"
     PERSIST = "persist"
 
 
-STAGE_ORDER: Final[tuple[StageName, ...]] = (
+STAGE_ORDER_2D: Final[tuple[StageName, ...]] = (
     StageName.PARSE,
     StageName.COMPUTE,
     StageName.GEOMETRY,
     StageName.CASE,
+    StageName.PERSIST,
+)
+
+STAGE_ORDER_3D: Final[tuple[StageName, ...]] = (
+    StageName.PARSE,
+    StageName.COMPUTE,
+    StageName.WING_GEOMETRY,
+    StageName.MESH,
     StageName.PERSIST,
 )
