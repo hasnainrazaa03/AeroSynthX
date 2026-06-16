@@ -41,7 +41,7 @@ class OptimizationRunner:
         study_spec = self._engine.create_study_spec(spec)
         study_result = self._study_runner.run(study_spec)
 
-        best_run = self._find_best_run(study_result, spec.objective)
+        best_run = self._find_best_run(study_result, spec)
 
         result = OptimizationResult(
             optimization_id=opt_id,
@@ -65,20 +65,44 @@ class OptimizationRunner:
 
         return result
 
-    def _find_best_run(self, study_result, objective):
+    def _find_best_run(self, study_result, spec: OptimizationSpec):
         """Finds the best run in a study based on the objective."""
-        if objective == "maximize_cl_cd":
-            best_run = None
+        best_run = None
+
+        if spec.objective == "maximize_cl_cd":
             max_cl_cd = -1
             for run in study_result.runs:
                 if run.xfoil_results:
-                    # For simplicity, use the first result point for comparison
                     res = run.xfoil_results[0]
                     if res.cd > 0:
                         cl_cd = res.cl / res.cd
                         if cl_cd > max_cl_cd:
                             max_cl_cd = cl_cd
                             best_run = run
-            return best_run
+
+        elif spec.objective == "minimize_cd":
+            min_cd = float("inf")
+            for run in study_result.runs:
+                if run.xfoil_results:
+                    res = run.xfoil_results[0]
+                    if res.cd < min_cd:
+                        min_cd = res.cd
+                        best_run = run
+
+        elif spec.objective == "target_cl":
+            min_diff = float("inf")
+            for run in study_result.runs:
+                if run.xfoil_results:
+                    res = run.xfoil_results[0]
+                    diff = abs(res.cl - spec.target_cl)
+                    if diff < min_diff:
+                        min_diff = diff
+                        best_run = run
+
         else:
-            raise NotImplementedError(f"Objective '{objective}' not implemented.")
+            raise NotImplementedError(f"Objective '{spec.objective}' not implemented.")
+
+        if best_run is None:
+            raise ValueError("Could not find a best run. The study may have failed or produced no results.")
+
+        return best_run

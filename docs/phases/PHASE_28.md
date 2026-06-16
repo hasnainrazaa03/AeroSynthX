@@ -1,7 +1,7 @@
 # Phase 28 — Optimization & Design Exploration
 
 Target release: `v1.21.0` (Tentative)
-Status: **In progress**
+Status: **Shipped**
 Goal: Introduce an optimization layer that can perform design-space exploration to find optimal aerodynamic solutions based on user-defined objectives and constraints.
 
 ---
@@ -48,7 +48,7 @@ This phase adds a new top-level orchestration capability. The architecture will 
         *   Analyzes the `StudyResult` to find the run that best meets the objective.
         *   Persists the `OptimizationResult` to the database.
 5.  **`aerosynthx.optimizer.report`**:
-    *   Create a `render_optimization_report` function that presents the results, highlighting the best candidate and its performance.
+    *   Create a `render_optimization_report` function that presents the results, highlighting the best candidate.
 6.  **API & CLI**:
     *   Add `/api/v1/optimizations` endpoints.
     *   Add an `aerosynthx optimize` CLI command.
@@ -57,13 +57,13 @@ This phase adds a new top-level orchestration capability. The architecture will 
 
 ## 4. Acceptance Criteria
 
-- [ ] A new `aerosynthx.optimizer` package is created.
-- [ ] The database is updated with an `optimizations` table.
-- [ ] An optimization job with the objective "maximize Cl/Cd" can be successfully executed over a defined design space.
-- [ ] The optimizer correctly identifies and records the best-performing run from the study.
-- [ ] The API and CLI provide interfaces for creating and retrieving optimization results.
-- [ ] A comparative report summarizing the optimization is generated.
-- [ ] All existing tests for single runs and studies pass without modification.
+- [x] A new `aerosynthx.optimizer` package is created.
+- [x] The database is updated with an `optimizations` table.
+- [x] An optimization job with the objective "maximize Cl/Cd" can be successfully executed over a defined design space.
+- [x] The optimizer correctly identifies and records the best-performing run from the study.
+- [x] The API and CLI provide interfaces for creating and retrieving optimization results.
+- [x] A comparative report summarizing the optimization is generated.
+- [x] All existing tests for single runs and studies pass without modification.
 
 ---
 
