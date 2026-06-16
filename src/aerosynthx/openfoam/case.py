@@ -116,6 +116,11 @@ def _make_env() -> Environment:
 
 
 def _envelope_guard(intent: DesignIntent) -> None:
+    if not intent.airfoil:
+        raise EnvelopeViolationError(
+            "OpenFOAM case generation only supports 2D airfoils, not 3D wings.",
+            code="openfoam.envelope.unsupported_geometry"
+        )
     if intent.airfoil.family not in ("naca4", "naca5", "custom"):
         raise EnvelopeViolationError(
             f"only NACA 4-digit, 5-digit, and custom airfoils are supported, got {intent.airfoil.family!r}",
@@ -131,6 +136,7 @@ def _format_float(value: float) -> str:
 
 
 def _template_context(intent: DesignIntent, state: FlowState) -> dict[str, str]:
+    assert intent.airfoil is not None
     chord = float(intent.airfoil.chord_m)
     xmin = -_DOMAIN_UPSTREAM_CHORDS * chord
     xmax = _DOMAIN_DOWNSTREAM_CHORDS * chord
@@ -192,6 +198,7 @@ def _render_templates(env: Environment, ctx: Mapping[str, str], output_dir: Path
 
 
 def _write_airfoil(intent: DesignIntent, output_dir: Path) -> str:
+    assert intent.airfoil is not None
     if intent.airfoil.family == "custom":
         airfoil = custom_airfoil(
             intent.airfoil.coordinates,
