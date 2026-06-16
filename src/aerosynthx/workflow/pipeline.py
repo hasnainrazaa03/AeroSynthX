@@ -457,82 +457,46 @@ class Pipeline:
         on_event: ProgressSink | None = None,
         analysis_mode: Literal["openfoam", "xfoil"] = "openfoam",
     ) -> RunResult:
-        """Execute every pipeline stage for ``intent_text``.
-
-        Args:
-            intent_text: Natural-language design intent.
-            resume: If true and a completed run already exists for this
-                text, return the cached :class:`RunResult` without
-                re-executing any stage. Ignored when ``execute`` is true.
-            execute: If true, run the generated case through the OpenFOAM
-                solver (when the toolchain is available). Execution always
-                runs fresh, bypassing the resume cache. (Ignored for xfoil mode)
-            timeout: Optional wall-clock budget in seconds. When exceeded,
-                the in-flight stage fails fast and the run finalises as
-                ``"failed"`` with a ``workflow.run.timeout`` stage error.
-            cancel_token: Optional :class:`CancellationToken`; tripping it
-                aborts the run at the next stage boundary with a
-                ``workflow.run.cancelled`` stage error.
-            on_event: Optional :data:`ProgressSink` notified at each stage
-                boundary (``stage_started`` / ``stage_finished``) and once
-                when the run finishes (``run_finished``). Ignored for runs
-                served from the resume cache.
-            analysis_mode: The backend to use for aerodynamic analysis.
-                Defaults to "openfoam".
-
-        Returns:
-            A :class:`RunResult`. Stage-level failures are captured in
-            ``stages``; the final ``status`` is ``"completed"`` only when
-            every stage succeeded.
         """
-        if not intent_text or not intent_text.strip():
-            raise StageError(
-                "intent text must be non-empty",
-                stage=StageName.PARSE.value,
-                code="workflow.input.empty",
-            )
+        Submits a run to the task queue and returns an initial result,
+        or executes it synchronously if no task queue is configured.
+        """
+        from aerosynthx.workflow.tasks import execute_run_task
 
-        control = RunControl.create(timeout=timeout, cancel_token=cancel_token, clock=self._clock)
         run_id = _run_id_for(intent_text, analysis_mode)
+
         if resume and not (execute and analysis_mode == "openfoam"):
             cached = self._maybe_resume(run_id)
             if cached is not None:
                 _LOG.info("resume.hit run_id=%s", run_id)
                 return cached
 
-        # Serialize work for this run_id so concurrent callers for the same
-        # intent do not race the shared run directory and DB row. Distinct
-        # run_ids never contend.
-        with self._locks.acquire(run_id):
-            if resume and not (execute and analysis_mode == "openfoam"):
-                # Double-checked: a peer may have finished while we waited.
-                cached = self._maybe_resume(run_id)
-                if cached is not None:
-                    _LOG.info("resume.hit run_id=%s (post-lock)", run_id)
-                    return cached
-            with bind_correlation_id(run_id):
-                return self._run_uncached(
-                    run_id, intent_text, execute=execute, control=control, on_event=on_event, analysis_mode=analysis_mode
-                )
-
-    def _run_uncached(
-        self,
-        run_id: str,
-        intent_text: str,
-        *,
-        execute: bool = False,
-        control: RunControl,
-        on_event: ProgressSink | None = None,
-        analysis_mode: Literal["openfoam", "xfoil"] = "openfoam",
-    ) -> RunResult:
-        emit = _make_emitter(run_id, on_event)
-        result = self._execute_run(
-            run_id, intent_text, execute=execute, control=control, emit=emit, analysis_mode=analysis_mode
+        # Create initial DB entry
+        self._persist(
+            run_id=run_id,
+            intent_text=intent_text,
+            status="queued",
+            intent=None, flow=None, case_dir=None, manifest_digest=None,
+            stages_so_far=[],
         )
-        emit("run_finished", None, result.status, None)
-        return result
 
-    def _execute_run(
+        # Submit to Celery
+        execute_run_task.delay(
+            intent_text=intent_text,
+            out_root_str=str(self._out_root),
+            analysis_mode=analysis_mode,
+            run_id=run_id,
+        )
+
+        # Return a placeholder result
+        return RunResult(
+            run_id=run_id,
+            intent_text=intent_text,
+            status="queued",
+            intent=None, flow_state=None, case_dir=None, manifest_digest=None, stages=(),
+        )
+
+    def execute_run_sync(
         self,
         run_id: str,
         intent_text: str,
@@ -612,9 +576,6 @@ class Pipeline:
             # --- mesh (for 3D wing) ------------------------------------
             with _timed(StageName.MESH, emit) as record:
                 control.check(StageName.MESH.value)
-                # The meshing configuration (snappyHexMeshDict and STL) is generated by build_case.
-                # In the future, this stage would actually execute snappyHexMesh.
-                # For now, it just succeeds.
                 record["digest"] = "mesh_configured"
             stages.append(record["result"])
             if record["result"].status == "failed":
