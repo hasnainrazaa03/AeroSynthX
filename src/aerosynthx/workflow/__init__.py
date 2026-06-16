@@ -1,34 +1,19 @@
-"""End-to-end workflow orchestrator (see ``docs/phases/PHASE_5.md``).
+"""The AeroSynthX workflow orchestration layer.
 
-Public API:
+This package is the "application" layer that stitches together the lower-level
+engineering modules (intent, physics, geometry, openfoam) into a coherent,
+end-to-end pipeline.
 
-- :class:`Pipeline` -- staged execution from intent text to OpenFOAM case.
-- :class:`RunResult` / :class:`StageResult` -- typed pipeline outputs.
-- :class:`StageName` -- the ordered stage enum.
-- :func:`load_run` -- read a persisted run from the SQLite store.
-- :func:`init_db` / :func:`open_session` -- low-level persistence hooks.
-- :func:`main` -- CLI entry point (also installed as ``aerosynthx``).
+See ``docs/phases/PHASE_5.md``.
 """
 
 from __future__ import annotations
 
-from aerosynthx.workflow.artifacts import (
-    ArchiveResult,
-    ContentAddressedStore,
-    RelinkResult,
-    StoreStats,
-)
-from aerosynthx.workflow.cancellation import CancellationToken, Deadline, RunControl
-from aerosynthx.workflow.cli import main
-from aerosynthx.workflow.db import RunRow, StageRow, init_db, open_session
-from aerosynthx.workflow.errors import (
-    RunCancelledError,
-    RunNotFoundError,
-    RunTimeoutError,
-    StageError,
-    WorkflowError,
-)
-from aerosynthx.workflow.locking import DEFAULT_RUN_LOCKS, RunLockRegistry
+from aerosynthx.workflow.artifacts import ContentAddressedStore, RelinkResult
+from aerosynthx.workflow.cancellation import CancellationToken
+from aerosynthx.workflow.db import init_db
+from aerosynthx.workflow.errors import RunNotFoundError, StageError
+from aerosynthx.workflow.locking import RunLockRegistry
 from aerosynthx.workflow.pipeline import (
     Pipeline,
     RunListItem,
@@ -41,40 +26,31 @@ from aerosynthx.workflow.pipeline import (
 from aerosynthx.workflow.progress import ProgressEvent, ProgressSink
 from aerosynthx.workflow.report import render_run_report
 from aerosynthx.workflow.retention import GarbageCollectResult, PruneResult
-from aerosynthx.workflow.stages import STAGE_ORDER, StageName
+from aerosynthx.workflow.cli import main
+from aerosynthx.workflow.stages import STAGE_ORDER_2D, STAGE_ORDER_3D, StageName
 
 __all__ = [
-    "DEFAULT_RUN_LOCKS",
-    "STAGE_ORDER",
-    "ArchiveResult",
-    "CancellationToken",
-    "ContentAddressedStore",
-    "Deadline",
-    "GarbageCollectResult",
     "Pipeline",
-    "ProgressEvent",
-    "ProgressSink",
-    "PruneResult",
-    "RelinkResult",
-    "RunCancelledError",
-    "RunControl",
-    "RunListItem",
-    "RunLockRegistry",
-    "RunNotFoundError",
-    "RunPage",
     "RunResult",
-    "RunRow",
-    "RunTimeoutError",
-    "StageError",
-    "StageName",
     "StageResult",
-    "StageRow",
-    "StoreStats",
-    "WorkflowError",
+    "RunListItem",
+    "RunPage",
+    "RunNotFoundError",
+    "StageError",
+    "CancellationToken",
+    "ProgressSink",
+    "ProgressEvent",
+    "ContentAddressedStore",
+    "RelinkResult",
+    "PruneResult",
+    "GarbageCollectResult",
+    "RunLockRegistry",
+    "StageName",
+    "STAGE_ORDER_2D",
+    "STAGE_ORDER_3D",
     "init_db",
     "load_run",
-    "main",
-    "open_session",
     "query_runs",
     "render_run_report",
+    "main",
 ]

@@ -33,21 +33,80 @@
     return r.json();
   }
 
+  async function pollStatus(endpoint, initialResult, statusField = "status") {
+      let result = initialResult;
+      // Depending on the endpoint, the ID field name changes
+      let id = result.run_id || result.study_id || result.optimization_id;
+
+      while (result[statusField] === "queued" || result[statusField] === "running" || result[statusField] === "pending") {
+          await new Promise(resolve => setTimeout(result, 2000)); // Poll every 2 seconds
+          result = await apiCall(`${endpoint}/${id}`);
+      }
+      return result;
+  }
+
   // --- UI Rendering ---
-  function renderResult(result) {
+  function renderRunResult(result) {
     $("#result-panel").hidden = false;
+
+    let reportLink = "";
+    if (result.status === "completed") {
+        reportLink = `<p><a href="/api/v1/runs/${result.run_id}/report" target="_blank" rel="noopener" class="badge">Download Report</a></p>`;
+    }
+
     $("#result-summary").innerHTML = `
-      <p><strong>Run ID:</strong> <code>${result.run_id}</code></p>
+      <p><strong>Type:</strong> Single Run</p>
+      <p><strong>ID:</strong> <code>${result.run_id}</code></p>
       <p><strong>Status:</strong> <span class="status-${result.status}">${result.status}</span></p>
-      ${result.case_dir ? `<p><strong>Case:</strong> <code>${result.case_dir}</code></p>` : ""}
-      ${result.status === "completed" ? `<p><a href="/api/v1/runs/${result.run_id}/report" target="_blank">Download Report</a></p>` : ""}
+      ${result.case_dir ? `<p><strong>Case Dir:</strong> <code>${result.case_dir}</code></p>` : ""}
+      ${reportLink}
     `;
-    renderStages(result.stages);
+
+    renderStages(result.stages || []);
     renderFiles(result);
     renderXfoilResults(result);
   }
 
+  function renderStudyResult(result) {
+    $("#result-panel").hidden = false;
+
+    let reportLink = "";
+    if (result.status === "completed") {
+        reportLink = `<p><a href="/api/v1/studies/${result.study_id}/report" target="_blank" rel="noopener" class="badge">Download Study Report</a></p>`;
+    }
+
+    $("#result-summary").innerHTML = `
+      <p><strong>Type:</strong> Parametric Study</p>
+      <p><strong>ID:</strong> <code>${result.study_id}</code></p>
+      <p><strong>Name:</strong> ${result.study_name}</p>
+      <p><strong>Status:</strong> <span class="status-${result.status}">${result.status}</span></p>
+      <p><strong>Total Runs:</strong> ${result.runs ? result.runs.length : 0}</p>
+      ${reportLink}
+    `;
+
+    // Hide single-run specific elements
+    $("#stages").parentElement.hidden = true;
+    $("#xfoil-results").parentElement.hidden = true;
+  }
+
+  function renderOptResult(result) {
+    $("#result-panel").hidden = false;
+
+    $("#result-summary").innerHTML = `
+      <p><strong>Type:</strong> Optimization</p>
+      <p><strong>ID:</strong> <code>${result.optimization_id}</code></p>
+      <p><strong>Status:</strong> <span class="status-${result.status || 'completed'}">completed</span></p>
+      <p><strong>Best Run ID:</strong> <code>${result.best_run_id}</code></p>
+    `;
+
+    // Hide single-run specific elements
+    $("#stages").parentElement.hidden = true;
+    $("#xfoil-results").parentElement.hidden = true;
+  }
+
   function renderStages(stages) {
+    const tableContainer = $("#stages").parentElement;
+    tableContainer.hidden = false;
     const tbody = $("#stages tbody");
     tbody.innerHTML = "";
     for (const s of stages) {
@@ -67,17 +126,29 @@
     const filesUl = $("#files");
     filesUl.innerHTML = "";
     const container = filesUl.parentElement;
+
+    // Handle 3D wing json
+    if (result.wing) {
+       container.hidden = false;
+       filesUl.previousElementSibling.hidden = false;
+       const li = document.createElement("li");
+       li.innerHTML = `<strong>3D Wing generated.</strong> (Check run directory for wing.json and wing.stl)`;
+       filesUl.appendChild(li);
+    }
+
     if (result.case_dir && result.status === "completed") {
       container.hidden = false;
+      filesUl.previousElementSibling.hidden = false;
       apiCall(`/api/v1/runs/${result.run_id}/files`).then(({ files }) => {
-        files.forEach(f => {
+        for (const f of files) {
           const li = document.createElement("li");
           li.innerHTML = `<a href="/api/v1/runs/${result.run_id}/files/${f}" target="_blank">${f}</a>`;
           filesUl.appendChild(li);
-        });
+        }
       });
-    } else {
+    } else if (!result.wing) {
       container.hidden = true;
+      filesUl.previousElementSibling.hidden = true;
     }
   }
 
@@ -90,7 +161,8 @@
     if (result.xfoil_results && result.xfoil_results.length > 0) {
       table.hidden = false;
       chartCanvas.hidden = false;
-      result.xfoil_results.forEach(row => {
+      table.previousElementSibling.hidden = false; // Show "XFOIL Results" heading
+      for (const row of result.xfoil_results) {
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td>${row.alpha_deg.toFixed(3)}</td>
@@ -99,11 +171,12 @@
           <td>${row.cm.toFixed(4)}</td>
         `;
         tbody.appendChild(tr);
-      });
+      }
       renderChart(result.xfoil_results);
     } else {
       table.hidden = true;
       chartCanvas.hidden = true;
+      table.previousElementSibling.hidden = true;
     }
   }
 
@@ -147,7 +220,10 @@
       if (status) params.set("status", status);
 
       const r = await fetch(`/api/v1/runs?${params.toString()}`, { headers: getHeaders() });
-      if (!r.ok) throw new Error(`Failed to load history: ${r.status}`);
+      if (!r.ok) {
+          if (r.status === 401) throw new Error("Unauthorized (Check API Key)");
+          throw new Error(`Failed to load history: ${r.status}`);
+      }
 
       runsState.total = Number(r.headers.get("X-Total-Count") || "0");
       const runs = await r.json();
@@ -166,7 +242,7 @@
         tr.querySelector("a").addEventListener("click", async (e) => {
           e.preventDefault();
           try {
-            renderResult(await apiCall(`/api/v1/runs/${row.run_id}`));
+            renderRunResult(await apiCall(`/api/v1/runs/${row.run_id}`));
           } catch (err) {
             alert(err.message);
           }
@@ -203,8 +279,14 @@
         resume: $("#resume").checked,
         analysis_mode: $("#analysis-mode").value,
       };
-      const result = await apiCall("/api/v1/runs", { method: "POST", body: JSON.stringify(body) });
-      renderResult(result);
+
+      // Initial submission
+      let result = await apiCall("/api/v1/runs", { method: "POST", body: JSON.stringify(body) });
+
+      // Poll until complete
+      result = await pollStatus("/api/v1/runs", result);
+
+      renderRunResult(result);
       runsState.offset = 0;
       loadRuns();
     } catch (error) {
@@ -215,6 +297,87 @@
     }
   });
 
+  function getVariables(containerId) {
+      const variables = {};
+      $$(`#${containerId} .variable-row`).forEach(row => {
+          const key = row.querySelector(".variable-key").value.trim();
+          const valuesStr = row.querySelector(".variable-values").value.trim();
+          if (key && valuesStr) {
+              // Try to parse values. If it's a valid JSON array, use it. Otherwise split by comma.
+              try {
+                  variables[key] = JSON.parse(valuesStr);
+                  if (!Array.isArray(variables[key])) throw new Error();
+              } catch {
+                  variables[key] = valuesStr.split(',').map(s => {
+                      const str = s.trim();
+                      const num = parseFloat(str);
+                      return isNaN(num) ? str : num;
+                  });
+              }
+          }
+      });
+      return variables;
+  }
+
+  $("#study-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = $("#run-study-btn");
+      const spinner = $("#study-spinner");
+      btn.disabled = true;
+      spinner.hidden = false;
+      try {
+          const body = {
+              study_name: $("#study-name").value,
+              base_intent: JSON.parse($("#study-base-intent").value),
+              variables: getVariables("study-variables"),
+          };
+          let result = await apiCall("/api/v1/studies", { method: "POST", body: JSON.stringify(body) });
+
+          // Poll until complete
+          result = await pollStatus("/api/v1/studies", result);
+
+          renderStudyResult(result);
+          loadRuns();
+      } catch (error) {
+          alert(`Study Error: ${error.message}. Ensure base intent is valid JSON.`);
+      } finally {
+          btn.disabled = false;
+          spinner.hidden = true;
+      }
+  });
+
+  $("#opt-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = $("#run-opt-btn");
+      const spinner = $("#opt-spinner");
+      btn.disabled = true;
+      spinner.hidden = false;
+      try {
+          const body = {
+              objective: $("#opt-objective").value,
+              target_cl: $("#opt-objective").value === 'target_cl' ? parseFloat($("#opt-target-cl").value) : undefined,
+              base_intent: JSON.parse($("#opt-base-intent").value),
+              design_space: getVariables("opt-variables"),
+          };
+          let result = await apiCall("/api/v1/optimizations", { method: "POST", body: JSON.stringify(body) });
+
+          // Poll until complete
+          // Optimization response doesn't have a status field typically if it just returns the result immediately.
+          // Assuming our backend currently blocks until complete, or returns a status.
+          if (result.status) {
+             result = await pollStatus("/api/v1/optimizations", result);
+          }
+
+          renderOptResult(result);
+          loadRuns();
+      } catch (error) {
+          alert(`Optimization Error: ${error.message}. Ensure base intent is valid JSON.`);
+      } finally {
+          btn.disabled = false;
+          spinner.hidden = true;
+      }
+  });
+
   // Tabs
   $$(".tab-link").forEach(button => {
     button.addEventListener("click", () => {
@@ -222,6 +385,7 @@
       $$(".tab-link").forEach(b => b.classList.remove("active"));
       $$(".tab-content").forEach(c => c.hidden = c.id !== tab);
       button.classList.add("active");
+      $(`#${tab}`).hidden = false;
     });
   });
 
@@ -231,8 +395,8 @@
     const row = document.createElement("div");
     row.className = "variable-row";
     row.innerHTML = `
-      <input type="text" class="variable-key" placeholder="e.g., flow.reynolds_target">
-      <input type="text" class="variable-values" placeholder="e.g., 1e6, 2e6, 3e6">
+      <input type="text" class="variable-key" placeholder="e.g. flow.reynolds_target">
+      <input type="text" class="variable-values" placeholder="e.g. [1e6, 2e6] or 1e6, 2e6">
       <button type="button" class="remove-btn">-</button>
     `;
     row.querySelector(".remove-btn").addEventListener("click", () => row.remove());
@@ -241,14 +405,19 @@
   $("#add-study-variable").addEventListener("click", () => addVariableRow("study-variables"));
   $("#add-opt-variable").addEventListener("click", () => addVariableRow("opt-variables"));
 
+  $("#opt-objective").addEventListener("change", (e) => {
+      $("#opt-target-cl").hidden = e.target.value !== "target_cl";
+  });
+
   // History search and filter
-  $("#runs-search").addEventListener("input", () => {
+  $("#runs-search").addEventListener("input", (e) => {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => {
-      runsState.offset = 0;
-      loadRuns();
+        runsState.offset = 0;
+        loadRuns();
     }, 300);
   });
+
   $("#runs-status").addEventListener("change", () => {
     runsState.offset = 0;
     loadRuns();
@@ -258,11 +427,15 @@
   $("#runs-prev").addEventListener("click", () => { runsState.offset -= runsState.limit; loadRuns(); });
   $("#runs-next").addEventListener("click", () => { runsState.offset += runsState.limit; loadRuns(); });
 
-  // Table sorting
-  $$("#stages th[data-sort]").forEach(th => th.addEventListener("click", () => sortTable("stages", th.dataset.sort, th.dataset.sort === "ms")));
-  $$("#xfoil-results th[data-sort]").forEach(th => th.addEventListener("click", () => sortTable("xfoil-results", th.dataset.sort, true)));
+  // Table sorting setup
+  $$("#stages th[data-sort]").forEach(th => {
+      th.addEventListener("click", () => sortTable("stages", th.dataset.sort, th.dataset.sort === "ms"));
+  });
 
-  // Initial Load
+  $$("#xfoil-results th[data-sort]").forEach(th => {
+      th.addEventListener("click", () => sortTable("xfoil-results", th.dataset.sort, true));
+  });
+
   loadVersion();
   loadRuns();
 })();

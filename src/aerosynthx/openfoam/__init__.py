@@ -15,7 +15,7 @@ Public API:
 from __future__ import annotations
 
 from aerosynthx.openfoam.case import (
-    TEMPLATE_NAME,
+    TEMPLATE_NAME_2D,
     TEMPLATE_VERSION,
     CaseManifest,
     build_case,
@@ -43,7 +43,7 @@ from aerosynthx.openfoam.runner import (
 from aerosynthx.openfoam.validators import validate_case_structure
 
 __all__ = [
-    "TEMPLATE_NAME",
+    "TEMPLATE_NAME_2D",
     "TEMPLATE_VERSION",
     "CaseExistsError",
     "CaseManifest",
