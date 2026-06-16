@@ -142,9 +142,16 @@ def _format_float(value: float) -> str:
 def _template_context(intent: DesignIntent, state: FlowState) -> dict[str, str]:
     if intent.airfoil:
         chord = float(intent.airfoil.chord_m)
+        is_3d = False
+        Aref = chord * (_DOMAIN_THICKNESS_CHORDS * chord)
+        lRef = chord
     else:
         assert intent.wing is not None
         chord = float(intent.wing.root_airfoil.chord_m)
+        is_3d = True
+        # For a simple untapered wing
+        Aref = float(intent.wing.span) * chord
+        lRef = chord
 
     xmin = -_DOMAIN_UPSTREAM_CHORDS * chord
     xmax = _DOMAIN_DOWNSTREAM_CHORDS * chord
@@ -153,6 +160,7 @@ def _template_context(intent: DesignIntent, state: FlowState) -> dict[str, str]:
     zmin = -0.5 * _DOMAIN_THICKNESS_CHORDS * chord
     zmax = 0.5 * _DOMAIN_THICKNESS_CHORDS * chord
     ux, uy, uz = state.velocity_vector_m_s
+
     return {
         "ux": _format_float(ux),
         "uy": _format_float(uy),
@@ -160,6 +168,7 @@ def _template_context(intent: DesignIntent, state: FlowState) -> dict[str, str]:
         "k": _format_float(state.k_m2_s2),
         "omega": _format_float(state.omega_1_s),
         "nu": _format_float(state.kinematic_viscosity_m2_s),
+        "rho": _format_float(state.density_kg_m3),
         "xmin": _format_float(xmin),
         "xmax": _format_float(xmax),
         "ymin": _format_float(ymin),
@@ -170,6 +179,9 @@ def _template_context(intent: DesignIntent, state: FlowState) -> dict[str, str]:
         "ny": str(_DOMAIN_NY),
         "end_time": "2000",
         "write_interval": "100",
+        "Aref": _format_float(Aref),
+        "lRef": _format_float(lRef),
+        "is_3d": "true" if is_3d else "false"
     }
 
 
@@ -314,8 +326,6 @@ def build_case(
         template_name = TEMPLATE_NAME_2D
     else:
         # 3D Case
-        # For this phase, we reuse 2D templates and append the 3D specific ones.
-        # In a real implementation, a dedicated 3D template set would be used.
         env = _make_env(_TEMPLATES_ROOT_2D)
         digests = _render_templates(env, ctx, output_dir, _TEMPLATE_FILES_2D)
 

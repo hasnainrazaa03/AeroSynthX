@@ -88,7 +88,7 @@ _SOLVER_COUNTER = METRICS.counter(
 _StageStatus = Literal["ok", "skipped", "failed", "pending"]
 
 _DEFAULT_DB_NAME: Final[str] = "aerosynthx.db"
-_DEFAULT_SOLVER_TIMEOUT: Final[float] = 600.0
+_DEFAULT_SOLVER_TIMEOUT: Final[float] = 3600.0 # Increased for 3D
 
 
 # An internal emit callback: (kind, stage, status, duration_ms) -> None.
@@ -620,6 +620,15 @@ class Pipeline:
             if record["result"].status == "failed":
                 return self._finalise(run_id, intent_text, "failed", stages, intent, flow, case_dir, None, None, wing)
 
+            # --- solve (opt-in, 3D) ---------------------------------------
+            if execute:
+                assert case_dir is not None
+                solve_result = self._solve_stage(case_dir, run_dir, stages, control, emit, intent=intent)
+                if stages[-1].status == "failed":
+                    return self._finalise(
+                        run_id, intent_text, "failed", stages, intent, flow, case_dir, None, None, wing
+                    )
+
         elif intent.airfoil:
             # --- geometry ---------------------------------------------
             with _timed(StageName.GEOMETRY, emit) as record:
@@ -645,10 +654,10 @@ class Pipeline:
                 if record["result"].status == "failed":
                     return self._finalise(run_id, intent_text, "failed", stages, intent, flow, None, None, None, None)
 
-                # --- solve (opt-in) ---------------------------------------
+                # --- solve (opt-in, 2D) ---------------------------------------
                 if execute:
                     assert case_dir is not None
-                    solve_result = self._solve_stage(case_dir, run_dir, stages, control, emit)
+                    solve_result = self._solve_stage(case_dir, run_dir, stages, control, emit, intent=intent)
                     if stages[-1].status == "failed":
                         return self._finalise(
                             run_id, intent_text, "failed", stages, intent, flow, case_dir, None, None, None
@@ -722,6 +731,7 @@ class Pipeline:
         stages: list[StageResult],
         control: RunControl,
         emit: _Emit = _noop_emit,
+        intent: DesignIntent | None = None,
     ) -> SolveResult | None:
         """Run the opt-in solve stage, appending its :class:`StageResult`."""
         solve_result: SolveResult | None = None
@@ -734,6 +744,7 @@ class Pipeline:
                 try:
                     solve_result = run_case(
                         case_dir,
+                        intent=intent,
                         runner=self._command_runner,
                         timeout=control.solver_timeout(_DEFAULT_SOLVER_TIMEOUT),
                     )

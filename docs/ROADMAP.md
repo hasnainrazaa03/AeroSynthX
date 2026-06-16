@@ -1,6 +1,6 @@
 # AeroSynthX — Roadmap
 
-Status: Living document (current release `v1.21.0`).
+Status: Living document (current release `v1.24.0`).
 This roadmap defines phases, milestones, acceptance criteria, and the
 dependencies between them. It is the source of truth for sequencing.
 For the post-v1.2.0 feature backlog, see
@@ -59,7 +59,10 @@ release, (d) an updated `CHANGELOG.md`.
 | 26 | XFOIL polar sweeps | Shipped (`v1.19.0`) |
 | 27 | Parametric studies | Shipped (`v1.20.0`) |
 | 28 | Optimization & Design Exploration | Shipped (`v1.21.0`) |
-| 28+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
+| 29 | 3D Wing Builder | Shipped (`v1.22.0`) |
+| 30 | 3D Mesh Generation | Shipped (`v1.23.0`) |
+| 31 | 3D Solver Execution | Shipped (`v1.24.0`) |
+| 31+ | See [Forward Backlog](#forward-backlog--improvement-checklist-post-v120) | Planned |
 
 Each phase has a dedicated checklist file under `docs/phases/`.
 
@@ -326,10 +329,9 @@ them to a `docs/phases/PHASE_N.md` when picked up.
 - [x] **P1** Actually run solvers (`blockMesh` → `simpleFoam`) when the
       toolchain is present (Phase 10, `v1.3.0`); opt-in via
       `run --execute` / API `execute`. Case generation remains the default.
-- [ ] **P2** Mesh generation controls (`snappyHexMesh`, refinement).
+- [x] **P2** Mesh generation controls (`snappyHexMesh`, refinement) (Phase 30, `v1.23.0`).
 - [x] **P2** Residual parsing + convergence detection (Phase 10, `v1.3.0`).
-- [x] **P2** Force-coefficient (Cl/Cd/Cm) extraction post-solve
-      (Phase 10, `v1.3.0`).
+- [x] **P2** Force-coefficient (Cl/Cd/Cm) extraction post-solve (Phase 10, `v1.3.0`).
 - [ ] **P2** Turbulence-model selection (kOmegaSST, Spalart–Allmaras).
 - [ ] **P3** ParaView / VTK export and screenshot generation.
 

@@ -4,4 +4,4 @@ From Phase 1 onward the ``physics`` subpackage is available; see
 ``aerosynthx.physics`` and ``docs/ARCHITECTURE.md``.
 """
 
-__version__ = "1.20.0"
+__version__ = "1.24.0"

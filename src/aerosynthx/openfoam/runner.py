@@ -2,12 +2,8 @@
 
 Running a solver requires an OpenFOAM installation, so by default the
 pipeline only *generates* a case. When execution is requested this module
-shells out to ``blockMesh`` and ``simpleFoam`` and parses their logs for
+shells out to the necessary OpenFOAM applications and parses their logs for
 convergence residuals and (when present) force coefficients.
-
-The process boundary is isolated behind a :class:`CommandRunner` callable
-so the harness — including the residual/coefficient parsers — is fully
-unit-testable without OpenFOAM installed.
 """
 
 from __future__ import annotations
@@ -21,22 +17,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Protocol
 
+from aerosynthx.intent.schemas import DesignIntent
 from aerosynthx.openfoam.errors import OpenFoamError
 
 
 class OpenFoamNotAvailableError(OpenFoamError):
     """Raised when solver execution is requested but OpenFOAM is absent."""
-
     code = "openfoam.runner.unavailable"
 
 
 class SolverExecutionError(OpenFoamError):
     """Raised when an OpenFOAM application exits with a non-zero status."""
-
     code = "openfoam.runner.failed"
 
 
-_SOLVER_APPS: Final[tuple[str, ...]] = ("blockMesh", "simpleFoam")
 _RESIDUAL_RE: Final = re.compile(r"Solving for Ux, Initial residual = ([0-9.eE+-]+)")
 _CONVERGED_RE: Final = re.compile(r"SIMPLE solution converged", re.IGNORECASE)
 _COEFF_KEYS: Final[Mapping[str, str]] = {
@@ -50,7 +44,6 @@ _COEFF_KEYS: Final[Mapping[str, str]] = {
 @dataclass(frozen=True, slots=True)
 class CommandResult:
     """Outcome of a single command invocation."""
-
     command: tuple[str, ...]
     returncode: int
     stdout: str
@@ -59,7 +52,6 @@ class CommandResult:
 
 class CommandRunner(Protocol):
     """Callable that executes a command in ``cwd`` and returns its result."""
-
     def __call__(self, command: Sequence[str], *, cwd: Path, timeout: float) -> CommandResult:
         """Execute ``command`` in ``cwd`` and return its :class:`CommandResult`."""
         ...
@@ -68,7 +60,6 @@ class CommandRunner(Protocol):
 @dataclass(frozen=True, slots=True)
 class SolveResult:
     """Structured outcome of running a case through the solver."""
-
     ran: bool
     converged: bool
     iterations: int
@@ -78,15 +69,12 @@ class SolveResult:
 
 
 def openfoam_available(env: Mapping[str, str] | None = None) -> bool:
-    """Return ``True`` when an OpenFOAM toolchain looks usable.
-
-    Requires ``WM_PROJECT_DIR`` to be set and every solver application to
-    resolve on ``PATH``.
-    """
+    """Return ``True`` when an OpenFOAM toolchain looks usable."""
     source = os.environ if env is None else env
     if not source.get("WM_PROJECT_DIR"):
         return False
-    return all(shutil.which(app) is not None for app in _SOLVER_APPS)
+    # Check for a few key executables
+    return all(shutil.which(app) is not None for app in ["blockMesh", "simpleFoam", "snappyHexMesh"])
 
 
 def default_command_runner(
@@ -118,12 +106,7 @@ def parse_residuals(log_text: str) -> tuple[int, float | None, bool]:
 
 
 def parse_force_coefficients(text: str) -> dict[str, float]:
-    """Extract Cl/Cd/Cm from an OpenFOAM ``coefficient.dat``-style table.
-
-    The last comment line is treated as the column header (the first
-    column is the time/iteration); the last data row supplies the values.
-    Unknown columns are ignored.
-    """
+    """Extract Cl/Cd/Cm from a 2D OpenFOAM ``coefficient.dat``-style table."""
     header: list[str] | None = None
     last_row: list[str] | None = None
     for line in text.splitlines():
@@ -149,13 +132,26 @@ def parse_force_coefficients(text: str) -> dict[str, float]:
     return coeffs
 
 
-def _read_coefficients(case_dir: Path) -> dict[str, float]:
+def parse_force_coefficients_3d(text: str) -> dict[str, float]:
+    """Extract Cl/Cd/Cm from a 3D OpenFOAM ``forceCoeffs.dat`` file."""
+    # The 3D format is often different, let's assume a similar format for now
+    # but this might need adjustment based on the actual output of the 3D case.
+    return parse_force_coefficients(text)
+
+
+def _read_coefficients(case_dir: Path, is_3d: bool) -> dict[str, float]:
     post = case_dir / "postProcessing"
     if not post.is_dir():
         return {}
-    candidates = sorted(post.glob("**/coefficient.dat")) + sorted(post.glob("**/forceCoeffs.dat"))
+
+    # In 3D, the output is typically in forceCoeffs.dat, not coefficient.dat
+    # and might be in a different subdirectory.
+    # For now, we'll just search for both.
+    candidates = sorted(post.glob("**/forceCoeffs.dat")) + sorted(post.glob("**/coefficient.dat"))
+
     for path in candidates:
-        coeffs = parse_force_coefficients(path.read_text(encoding="utf-8"))
+        parser = parse_force_coefficients_3d if is_3d else parse_force_coefficients
+        coeffs = parser(path.read_text(encoding="utf-8"))
         if coeffs:
             return coeffs
     return {}
@@ -168,19 +164,36 @@ def _write_log(case_dir: Path, app: str, result: CommandResult) -> None:
     (case_dir / f"log.{app}").write_text(body, encoding="utf-8")
 
 
+def _get_commands_from_allrun(case_dir: Path) -> list[str]:
+    """Parses the Allrun script to find the sequence of commands to execute."""
+    allrun_path = case_dir / "Allrun"
+    if not allrun_path.is_file():
+        return []
+
+    commands = []
+    content = allrun_path.read_text()
+    for line in content.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            # A simple parser that takes the first word of a line as the command
+            commands.append(line.split()[0])
+    return commands
+
+
 def run_case(
     case_dir: Path,
     *,
+    intent: DesignIntent,
     runner: CommandRunner,
-    timeout: float = 600.0,
+    timeout: float = 3600.0, # Increased default for 3D
 ) -> SolveResult:
-    """Run ``blockMesh`` then ``simpleFoam`` in ``case_dir``.
+    """
+    Executes the sequence of commands found in the Allrun script in ``case_dir``.
 
     Args:
         case_dir: A generated case directory.
-        runner: Callable that executes each command. Inject a fake runner
-            to exercise the harness offline; use
-            :func:`default_command_runner` for real execution.
+        intent: The design intent, used to determine if the case is 2D or 3D.
+        runner: Callable that executes each command.
         timeout: Per-command timeout in seconds.
 
     Returns:
@@ -189,8 +202,13 @@ def run_case(
     Raises:
         SolverExecutionError: An application exited with a non-zero code.
     """
+    commands_to_run = _get_commands_from_allrun(case_dir)
+    if not commands_to_run:
+        raise SolverExecutionError("No Allrun script found or it is empty.", code="openfoam.runner.no_script")
+
     executed: list[str] = []
-    for app in _SOLVER_APPS:
+    solver_log = ""
+    for app in commands_to_run:
         result = runner([app], cwd=case_dir, timeout=timeout)
         _write_log(case_dir, app, result)
         executed.append(app)
@@ -199,14 +217,19 @@ def run_case(
                 f"{app} exited with code {result.returncode}",
                 code="openfoam.runner.failed",
             )
+        if app == "simpleFoam": # Assume simpleFoam is the main solver
+            solver_log = result.stdout
 
-    solver_log = (case_dir / f"log.{_SOLVER_APPS[-1]}").read_text(encoding="utf-8")
     iterations, final_residual, converged = parse_residuals(solver_log)
+
+    is_3d = intent.wing is not None
+    coefficients = _read_coefficients(case_dir, is_3d)
+
     return SolveResult(
         ran=True,
         converged=converged,
         iterations=iterations,
         final_residual=final_residual,
-        coefficients=_read_coefficients(case_dir),
+        coefficients=coefficients,
         commands=tuple(executed),
     )

@@ -1,6 +1,6 @@
-/*--------------------------------*- C++ -*----------------------------------*\
+/*--------------------------------*- C++ -*----------------------------------*\\
 | AeroSynthX-generated OpenFOAM dictionary                                    |
-\*---------------------------------------------------------------------------*/
+\\*---------------------------------------------------------------------------*/
 FoamFile
 {
     version     2.0;
@@ -29,5 +29,30 @@ writeCompression off;
 timeFormat      general;
 timePrecision   6;
 runTimeModifiable true;
+
+functions
+{
+    forceCoeffs
+    {
+        type            forceCoeffs;
+        libs            ("libforces.so");
+        writeControl    timeStep;
+        writeInterval   10;
+        log             yes;
+        patches         ("airfoil");
+        p               p;
+        U               U;
+        rho             rhoInf;
+        rhoInf          {{ rho }};
+        log             true;
+        CofR            (0.25 0 0);
+        liftDir         (0 1 0);
+        dragDir         (1 0 0);
+        pitchAxis       (0 0 1);
+        magUInf         {{ ux }};
+        lRef            {{ lRef }};
+        Aref            {{ Aref }};
+    }
+}
 
 // ************************************************************************* //
