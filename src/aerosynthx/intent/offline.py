@@ -44,7 +44,7 @@ _CHORD_RE = re.compile(
     ([0-9]*\.?[0-9]+)
     \s*
     (millimeters|millimeter|centimeters|centimeter|meters|metres|meter|metre
-     |inches|inch|feet|mm|cm|ft|in|m)
+     |inches|inch|feet|mm|cm|ft|in|m)?
     \b
     """,
 )
@@ -84,8 +84,6 @@ _AOA_RE = re.compile(
         (-?[0-9]*\.?[0-9]+)
         \s*
         (?:deg|degree|degrees|\u00b0)
-        \s*
-        (?:angle[\s_-]*of[\s_-]*attack|aoa|alpha)
     )
     """,
 )
@@ -121,7 +119,7 @@ _DEFAULT_AOA_DEG = 0.0
 def _to_si_or_error(value: float, unit: str, *, dimension: str, field: str) -> float:
     try:
         return to_si(value, unit, dimension=dimension)
-    except UnitError as exc:  # pragma: no cover - defensive; regex restricts units
+    except UnitError as exc:
         raise LLMParseError(
             f"could not convert {field}: {exc}",
             code="intent.offline.unit",
@@ -138,7 +136,6 @@ def _extract_naca(text: str) -> tuple[str, str] | None:
     if m4:
         return m4.group(1), "naca4"
 
-    # Bare digit fallbacks
     m5_bare = _BARE_5DIGIT_RE.search(text)
     if m5_bare:
         return m5_bare.group(1), "naca5"
@@ -155,8 +152,10 @@ def _extract_chord_m(text: str) -> float | None:
     if not m:
         return None
     value = float(m.group(1))
-    unit = m.group(2).lower()
-    return _to_si_or_error(value, unit, dimension="length", field="chord")
+    unit = m.group(2)
+    if unit:
+        return _to_si_or_error(value, unit.lower(), dimension="length", field="chord")
+    return value # Assume meters if no unit is provided
 
 
 def _extract_altitude_m(text: str) -> float | None:
@@ -280,7 +279,6 @@ def parse_offline(text: str) -> ParseResult:
         provenance["flow.velocity_m_s"] = "user_provided"
     if mach is not None:
         provenance["flow.mach"] = "user_provided"
-        # mach requires altitude; default to sea level if absent.
         if altitude is None:
             altitude = 0.0
             assumptions.append(
@@ -305,7 +303,7 @@ def parse_offline(text: str) -> ParseResult:
         airfoil=airfoil,
         flow=flow,
         assumptions=assumptions,
-        provenance=ProvenanceMap(fields=provenance),  # type: ignore[arg-type]
+        provenance=ProvenanceMap(fields=provenance),
         notes=None,
     )
     return ParseResult(

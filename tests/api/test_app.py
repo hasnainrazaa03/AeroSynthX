@@ -46,13 +46,49 @@ def test_create_run_happy(client: TestClient) -> None:
 @patch("aerosynthx.workflow.pipeline.run_xfoil")
 def test_create_run_xfoil_mode(mock_run_xfoil, client: TestClient) -> None:
     """Test that the xfoil analysis mode can be triggered via the API."""
-    mock_run_xfoil.return_value = XfoilResult(alpha_deg=3.0, cl=0.5, cd=0.01, cm=-0.02)
+    mock_run_xfoil.return_value = [XfoilResult(alpha_deg=3.0, cl=0.5, cd=0.01, cm=-0.02)]
     r = client.post("/api/v1/runs", json={"intent_text": _GOOD, "analysis_mode": "xfoil"})
     assert r.status_code == 201
     body = r.json()
     assert body["status"] == "completed"
-    assert body["xfoil"] is not None
-    assert body["xfoil"]["cl"] == 0.5
+    assert body["xfoil_results"] is not None
+    assert len(body["xfoil_results"]) == 1
+    assert body["xfoil_results"][0]["cl"] == 0.5
+
+
+def test_create_study(client: TestClient) -> None:
+    """Test creating a study via the API."""
+    spec = {
+        "study_name": "API Study",
+        "base_intent": {
+            "airfoil": {"family": "naca4", "designation": "0012", "chord_m": 1.0},
+            "flow": {"velocity_m_s": 50, "angle_of_attack_deg": 2.0},
+        },
+        "variables": {"flow.reynolds_target": [1e6, 2e6]},
+    }
+    r = client.post("/api/v1/studies", json=spec)
+    assert r.status_code == 201
+    body = r.json()
+    assert body["status"] == "completed"
+    assert len(body["runs"]) == 2
+
+
+def test_create_optimization(client: TestClient) -> None:
+    """Test creating an optimization via the API."""
+    spec = {
+        "objective": "maximize_cl_cd",
+        "design_space": {
+            "airfoil.designation": ["0012", "2412"]
+        },
+        "base_intent": {
+            "airfoil": {"family": "naca4", "chord_m": 1.0},
+            "flow": {"velocity_m_s": 50, "angle_of_attack_deg": 4.0},
+        },
+    }
+    r = client.post("/api/v1/optimizations", json=spec)
+    assert r.status_code == 201
+    body = r.json()
+    assert body["best_run_id"] is not None
 
 
 def test_create_run_failed_status_is_201_with_failed_body(client: TestClient) -> None:

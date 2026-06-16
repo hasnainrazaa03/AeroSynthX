@@ -12,6 +12,7 @@ class StageName(StrEnum):
     PARSE = "parse"
     COMPUTE = "compute"
     GEOMETRY = "geometry"
+    WING_GEOMETRY = "wing_geometry"
     CASE = "case"
     SOLVE = "solve"
     XFOIL = "xfoil"

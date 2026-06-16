@@ -26,9 +26,11 @@ from aerosynthx.api.security import ApiKeyStore, Scope, make_api_key_dependency
 from aerosynthx.api.sse import run_event_stream
 from aerosynthx.intent import LLMClient
 from aerosynthx.observability import METRICS, bind_correlation_id, render_prometheus
+from aerosynthx.optimizer import OptimizationRunner, OptimizationSpec
+from aerosynthx.optimizer.report import render_optimization_report
 from aerosynthx.study import StudyRunner, StudySpec
 from aerosynthx.study.report import render_study_report
-from aerosynthx.workflow.db import open_session, StudyRow
+from aerosynthx.workflow.db import OptimizationRow, StudyRow, open_session
 from aerosynthx.workflow.errors import StageError
 from aerosynthx.workflow.pipeline import Pipeline, load_run, query_runs
 from aerosynthx.workflow.report import render_run_report
@@ -119,6 +121,7 @@ def create_app(
         Pipeline(out_root=out_root, llm_client=llm_client) if llm_client is not None else pipeline
     )
     study_runner = StudyRunner(pipeline)
+    opt_runner = OptimizationRunner(study_runner)
     store = ApiKeyStore.from_keys(api_keys) if api_keys is not None else ApiKeyStore.from_env()
     auth_read = Depends(make_api_key_dependency(store, required_scope=Scope.READ))
     auth_run = Depends(make_api_key_dependency(store, required_scope=Scope.RUN))
@@ -157,6 +160,26 @@ def create_app(
     @app.get("/api/v1/version", response_model=VersionInfo, tags=["meta"])
     def version() -> VersionInfo:
         return VersionInfo(name="aerosynthx", version=__version__)
+
+    # -------- optimizations --------------------------------------------
+
+    @app.post(
+        "/api/v1/optimizations",
+        tags=["optimizations"],
+        status_code=status.HTTP_201_CREATED,
+        dependencies=[auth_run],
+    )
+    def create_optimization(body: OptimizationSpec) -> dict[str, Any]:
+        result = opt_runner.run(body)
+        return result.model_dump()
+
+    @app.get("/api/v1/optimizations/{opt_id}", tags=["optimizations"], dependencies=[auth_read])
+    def get_optimization(opt_id: str) -> dict[str, Any]:
+        with open_session(pipeline.db_path) as session:
+            opt_row = session.get(OptimizationRow, opt_id)
+            if not opt_row:
+                raise HTTPException(status_code=404, detail="Optimization not found")
+            return opt_row.result_json
 
     # -------- studies --------------------------------------------------
 

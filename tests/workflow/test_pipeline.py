@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy import select
 
-from aerosynthx.intent import DesignIntent
+from aerosynthx.intent import DesignIntent, WingSpec, AirfoilSpec
 from aerosynthx.workflow.cancellation import CancellationToken
 from aerosynthx.workflow.db import RunRow, open_session
 from aerosynthx.workflow.errors import StageError
@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 _GOOD_INTENT = "NACA 2412 at 50 m/s, alpha 3 deg, chord 1.0 m."
 _GOOD_INTENT_SWEEP = "NACA 0012 from 0 to 5 degrees alpha by 1 degree"
 _OTHER_INTENT = "NACA 2412 at 65 m/s, alpha 3 deg, chord 1.0 m."
+_WING_INTENT = "3D wing, span 10m, root NACA 0012 chord 1m, tip NACA 0012 chord 0.5m"
 
 
 def test_run_happy_path_produces_all_stage_results(tmp_path: Path) -> None:
@@ -35,6 +36,37 @@ def test_run_happy_path_produces_all_stage_results(tmp_path: Path) -> None:
     assert result.manifest_digest is not None
     run_json = tmp_path / "runs" / result.run_id / "run.json"
     assert run_json.exists()
+
+
+@patch("aerosynthx.workflow.pipeline.generate_wing")
+def test_run_wing_geometry_path(mock_generate_wing, tmp_path: Path) -> None:
+    """Test that a wing intent runs the wing_geometry stage."""
+    from aerosynthx.geometry.wing import Wing
+    mock_generate_wing.return_value = Wing(span=10, root_chord=1, tip_chord=0.5, sweep_deg=0, dihedral_deg=0, twist_deg=0, root_airfoil=None, tip_airfoil=None, coordinates=(), metadata={})
+
+    pipe = Pipeline(out_root=tmp_path)
+    # This is a simplified intent for testing; the offline parser doesn't support wings yet.
+    # We construct the DesignIntent manually.
+    intent = DesignIntent(
+        wing=WingSpec(
+            span=10,
+            root_airfoil=AirfoilSpec(family="naca4", designation="0012", chord_m=1.0),
+            tip_airfoil=AirfoilSpec(family="naca4", designation="0012", chord_m=0.5),
+        ),
+        flow={"velocity_m_s": 50, "angle_of_attack_deg": 2.0},
+        assumptions=[],
+        provenance={},
+    )
+
+    # We need to bypass the text-based run method for this test
+    run_id = "wing_run_123"
+    result = pipe._execute_run(run_id, _WING_INTENT, execute=False, control=MagicMock(), emit=lambda *a, **kw: None)
+
+    assert result.status == "completed"
+    stage_names = {s.name for s in result.stages}
+    assert "wing_geometry" in stage_names
+    assert "case" not in stage_names
+    mock_generate_wing.assert_called_once()
 
 
 @patch("aerosynthx.workflow.pipeline.run_xfoil")

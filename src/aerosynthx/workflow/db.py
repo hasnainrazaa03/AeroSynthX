@@ -22,18 +22,35 @@ class Base(DeclarativeBase):
     """Declarative base for AeroSynthX persistence models."""
 
 
+class OptimizationRow(Base):
+    """One row per optimization job."""
+
+    __tablename__ = "optimizations"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    spec_json: Mapped[str] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String)
+    result_json: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at_iso: Mapped[str] = mapped_column(String)
+    completed_at_iso: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    study: Mapped[StudyRow | None] = relationship(back_populates="optimization")
+
+
 class StudyRow(Base):
     """One row per study."""
 
     __tablename__ = "studies"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    optimization_id: Mapped[str | None] = mapped_column(ForeignKey("optimizations.id"), index=True, nullable=True)
     name: Mapped[str] = mapped_column(String)
     spec_json: Mapped[str] = mapped_column(String)
     status: Mapped[str] = mapped_column(String)
     created_at_iso: Mapped[str] = mapped_column(String)
     completed_at_iso: Mapped[str | None] = mapped_column(String, nullable=True)
 
+    optimization: Mapped[OptimizationRow | None] = relationship(back_populates="study")
     runs: Mapped[list[RunRow]] = relationship(back_populates="study")
 
 

@@ -104,6 +104,7 @@
         <td class="status-${s.status}">${s.status}</td>
         <td>${s.duration_ms}</td>
         <td>${(s.output_digest || "").slice(0, 12)}</td>
+        <td class="status-failed">${s.error || ""}</td>
       `;
       tbody.appendChild(tr);
     }
@@ -230,7 +231,15 @@
         });
         if (!r.ok) {
           if (r.status === 401) throw new Error("Unauthorized (Check API Key)");
-          throw new Error(`Run failed: ${r.status} ${await r.text()}`);
+          // Try to get JSON error detail
+          try {
+             const errorData = await r.json();
+             throw new Error(`Run failed: ${errorData.detail.message || JSON.stringify(errorData)}`);
+          } catch(e) {
+             // Fallback to text
+             if(e.message.startsWith("Run failed:")) throw e; // rethrow if it was our json error
+             throw new Error(`Run failed: ${r.status} ${await r.text()}`);
+          }
         }
         renderResult(await r.json());
         runsState.offset = 0;

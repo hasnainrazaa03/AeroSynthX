@@ -1,7 +1,7 @@
 # Phase 27 — Parametric Studies & Comparative Aerodynamic Analysis
 
 Target release: `v1.20.0` (Tentative)
-Status: **In progress**
+Status: **Shipped**
 Goal: Enable users to define and execute parametric studies, such as Reynolds number sweeps and multi-airfoil comparisons, and receive a structured, comparative analysis of the results.
 
 ---
@@ -63,15 +63,15 @@ This design respects the existing architecture by adding a new orchestration lay
 
 ## 4. Acceptance Criteria
 
-- [ ] A new `aerosynthx.study` package is created.
-- [ ] The database schema is updated with `studies` table and `study_id` foreign key.
-- [ ] A study with a Reynolds number sweep can be successfully executed.
-- [ ] A study comparing multiple different airfoils can be successfully executed.
-- [ ] The results of all individual runs within a study are correctly linked to the parent study in the database.
-- [ ] The API provides endpoints for creating and retrieving studies.
-- [ ] The CLI provides a `study run` command.
-- [ ] A comparative HTML report can be generated for a completed study.
-- [ ] All existing tests for single-run workflows pass without modification.
+- [x] A new `aerosynthx.study` package is created.
+- [x] The database schema is updated with `studies` table and `study_id` foreign key.
+- [x] A study with a Reynolds number sweep can be successfully executed.
+- [x] A study comparing multiple different airfoils can be successfully executed.
+- [x] The results of all individual runs within a study are correctly linked to the parent study in the database.
+- [x] The API provides endpoints for creating and retrieving studies.
+- [x] The CLI provides a `study run` command.
+- [x] A comparative HTML report can be generated for a completed study.
+- [x] All existing tests for single-run workflows pass without modification.
 
 ---
 
