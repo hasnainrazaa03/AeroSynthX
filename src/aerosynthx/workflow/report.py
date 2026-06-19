@@ -78,13 +78,21 @@ def _intent_rows(result: RunResult) -> list[tuple[str, str]]:
     intent = result.intent
     if intent is None:
         return []
-    airfoil = intent.airfoil
     flow = intent.flow
-    rows = [
-        ("Airfoil", f"{airfoil.family} {airfoil.designation}"),
-        ("Chord", f"{_fmt(airfoil.chord_m)} m"),
-        ("Angle of attack", f"{_fmt(flow.angle_of_attack_deg)} deg"),
-    ]
+    rows = []
+    if intent.airfoil:
+        rows.append(("Airfoil", f"{intent.airfoil.family} {intent.airfoil.designation}"))
+        rows.append(("Chord", f"{_fmt(intent.airfoil.chord_m)} m"))
+    elif intent.wing:
+        rows.append(("Geometry", "3D Wing"))
+        rows.append(("Span", f"{_fmt(intent.wing.span)} m"))
+        rows.append(("Sweep", f"{_fmt(intent.wing.sweep_deg)} deg"))
+        rows.append(("Dihedral", f"{_fmt(intent.wing.dihedral_deg)} deg"))
+        rows.append(("Twist", f"{_fmt(intent.wing.twist_deg)} deg"))
+        rows.append(("Root Airfoil", f"{intent.wing.root_airfoil.family} {intent.wing.root_airfoil.designation}"))
+        if intent.wing.tip_airfoil:
+            rows.append(("Tip Airfoil", f"{intent.wing.tip_airfoil.family} {intent.wing.tip_airfoil.designation}"))
+    rows.append(("Angle of attack", f"{_fmt(flow.angle_of_attack_deg)} deg"))
     if flow.velocity_m_s is not None:
         rows.append(("Velocity", f"{_fmt(flow.velocity_m_s)} m/s"))
     if flow.mach is not None:
