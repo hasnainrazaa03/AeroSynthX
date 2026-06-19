@@ -1,4 +1,4 @@
-// AeroSynthX modern UI
+// AeroSynthX Modern UI Engine
 (() => {
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
@@ -9,13 +9,17 @@
 
   // --- API & State Management ---
   const apiKeyInput = $("#api-key");
-  apiKeyInput.value = localStorage.getItem("aerosynthx_api_key") || "";
-  apiKeyInput.addEventListener("input", (e) => localStorage.setItem("aerosynthx_api_key", e.target.value.trim()));
+  if (apiKeyInput) {
+    apiKeyInput.value = localStorage.getItem("aerosynthx_api_key") || "";
+    apiKeyInput.addEventListener("input", (e) => localStorage.setItem("aerosynthx_api_key", e.target.value.trim()));
+  }
 
   function getHeaders() {
     const headers = { "Content-Type": "application/json" };
-    const key = apiKeyInput.value.trim();
-    if (key) headers["X-API-Key"] = key;
+    if (apiKeyInput) {
+      const key = apiKeyInput.value.trim();
+      if (key) headers["X-API-Key"] = key;
+    }
     return headers;
   }
 
@@ -35,7 +39,6 @@
 
   async function pollStatus(endpoint, initialResult, statusField = "status") {
       let result = initialResult;
-      // Depending on the endpoint, the ID field name changes
       let id = result.run_id || result.study_id || result.optimization_id;
 
       while (result[statusField] === "queued" || result[statusField] === "running" || result[statusField] === "pending") {
@@ -91,20 +94,43 @@
 
     let reportLink = "";
     if (result.status === "completed") {
-        reportLink = `<p><a href="/api/v1/runs/${result.run_id}/report" target="_blank" rel="noopener" class="badge">Download Report</a></p>`;
+        reportLink = `<p><a href="/api/v1/runs/${result.run_id}/report" target="_blank" rel="noopener" class="badge-status ready-badge">Download Full HTML Report</a></p>`;
+    }
+
+    let geomHtml = "";
+    if (result.wing) {
+      geomHtml = `
+        <p><strong>Geometry Type:</strong> 3D Wing</p>
+        <p><strong>Span:</strong> ${result.wing.span} m</p>
+        <p><strong>Sweep / Dihedral / Twist:</strong> ${result.wing.sweep_deg}° / ${result.wing.dihedral_deg}° / ${result.wing.twist_deg}°</p>
+        <p><strong>Root Airfoil:</strong> NACA ${result.wing.root_airfoil.designation} (${result.wing.root_airfoil.chord_m}m chord)</p>
+        <p><strong>Tip Airfoil:</strong> NACA ${result.wing.tip_airfoil ? result.wing.tip_airfoil.designation : "N/A"} (${result.wing.tip_airfoil ? result.wing.tip_airfoil.chord_m : "N/A"}m chord)</p>
+      `;
+    } else if (result.airfoil) {
+      geomHtml = `
+        <p><strong>Geometry Type:</strong> 2D Airfoil (NACA ${result.airfoil.designation})</p>
+        <p><strong>Chord length:</strong> ${result.airfoil.chord_m} m</p>
+        <p><strong>Family:</strong> ${result.airfoil.family}</p>
+      `;
     }
 
     $("#result-summary").innerHTML = `
-      <p><strong>Type:</strong> Single Run</p>
-      <p><strong>ID:</strong> <code>${result.run_id}</code></p>
-      <p><strong>Status:</strong> <span class="status-${result.status}">${result.status}</span></p>
-      ${result.case_dir ? `<p><strong>Case Dir:</strong> <code>${result.case_dir}</code></p>` : ""}
-      ${reportLink}
+      <div class="summary-info">
+        <p><strong>ID:</strong> <code>${result.run_id}</code></p>
+        <p><strong>Status:</strong> <span class="status-${result.status}">${result.status}</span></p>
+        ${geomHtml}
+        ${result.case_dir ? `<p><strong>Output Directory:</strong> <code>${result.case_dir}</code></p>` : ""}
+        ${reportLink}
+      </div>
     `;
 
     renderStages(result.stages || []);
     renderFiles(result);
     renderXfoilResults(result);
+    
+    // Smooth scroll to the result panel
+    $("#result-panel").scrollIntoView({ behavior: 'smooth' });
+    lucide.createIcons();
   }
 
   function renderStudyResult(result) {
@@ -112,36 +138,46 @@
 
     let reportLink = "";
     if (result.status === "completed") {
-        reportLink = `<p><a href="/api/v1/studies/${result.study_id}/report" target="_blank" rel="noopener" class="badge">Download Study Report</a></p>`;
+        reportLink = `<p><a href="/api/v1/studies/${result.study_id}/report" target="_blank" rel="noopener" class="badge-status ready-badge">Download Study Report</a></p>`;
     }
 
     $("#result-summary").innerHTML = `
-      <p><strong>Type:</strong> Parametric Study</p>
-      <p><strong>ID:</strong> <code>${result.study_id}</code></p>
-      <p><strong>Name:</strong> ${result.study_name}</p>
-      <p><strong>Status:</strong> <span class="status-${result.status}">${result.status}</span></p>
-      <p><strong>Total Runs:</strong> ${result.runs ? result.runs.length : 0}</p>
-      ${reportLink}
+      <div class="summary-info">
+        <p><strong>Type:</strong> Parametric Study</p>
+        <p><strong>ID:</strong> <code>${result.study_id}</code></p>
+        <p><strong>Name:</strong> ${result.study_name}</p>
+        <p><strong>Status:</strong> <span class="status-${result.status}">${result.status}</span></p>
+        <p><strong>Total Iterations:</strong> ${result.runs ? result.runs.length : 0}</p>
+        ${reportLink}
+      </div>
     `;
 
     // Hide single-run specific elements
     $("#stages").parentElement.hidden = true;
     $("#xfoil-results").parentElement.hidden = true;
+    
+    $("#result-panel").scrollIntoView({ behavior: 'smooth' });
+    lucide.createIcons();
   }
 
   function renderOptResult(result) {
     $("#result-panel").hidden = false;
 
     $("#result-summary").innerHTML = `
-      <p><strong>Type:</strong> Optimization</p>
-      <p><strong>ID:</strong> <code>${result.optimization_id}</code></p>
-      <p><strong>Status:</strong> <span class="status-${result.status || 'completed'}">completed</span></p>
-      <p><strong>Best Run ID:</strong> <code>${result.best_run_id}</code></p>
+      <div class="summary-info">
+        <p><strong>Type:</strong> Optimization Search</p>
+        <p><strong>ID:</strong> <code>${result.optimization_id}</code></p>
+        <p><strong>Status:</strong> <span class="status-${result.status || 'completed'}">completed</span></p>
+        <p><strong>Best Selected Run ID:</strong> <code>${result.best_run_id}</code></p>
+      </div>
     `;
 
     // Hide single-run specific elements
     $("#stages").parentElement.hidden = true;
     $("#xfoil-results").parentElement.hidden = true;
+    
+    $("#result-panel").scrollIntoView({ behavior: 'smooth' });
+    lucide.createIcons();
   }
 
   function renderStages(stages) {
@@ -152,10 +188,10 @@
     for (const s of stages) {
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>${s.name}</td>
-        <td class="status-${s.status}">${s.status}</td>
+        <td><strong>${s.name}</strong></td>
+        <td><span class="status-${s.status}">${s.status}</span></td>
         <td>${s.duration_ms}</td>
-        <td>${(s.output_digest || "").slice(0, 12)}</td>
+        <td><code>${(s.output_digest || "").slice(0, 12)}</code></td>
         <td class="status-failed">${s.error || ""}</td>
       `;
       tbody.appendChild(tr);
@@ -167,12 +203,12 @@
     filesUl.innerHTML = "";
     const container = filesUl.parentElement;
 
-    // Handle 3D wing json
+    // Handle 3D wing json indicator
     if (result.wing) {
        container.hidden = false;
        filesUl.previousElementSibling.hidden = false;
        const li = document.createElement("li");
-       li.innerHTML = `<strong>3D Wing generated.</strong> (Check run directory for wing.json and wing.stl)`;
+       li.innerHTML = `<i data-lucide="file-check" style="margin-right:0.5rem; width:1.1rem; color:var(--success-color);"></i><span>3D Wing representation generated. Check run workspace directory.</span>`;
        filesUl.appendChild(li);
     }
 
@@ -182,9 +218,10 @@
       apiCall(`/api/v1/runs/${result.run_id}/files`).then(({ files }) => {
         for (const f of files) {
           const li = document.createElement("li");
-          li.innerHTML = `<a href="/api/v1/runs/${result.run_id}/files/${f}" target="_blank">${f}</a>`;
+          li.innerHTML = `<i data-lucide="file" style="margin-right:0.5rem; width:1.1rem; color:var(--accent-color);"></i><a href="/api/v1/runs/${result.run_id}/files/${f}" target="_blank">${f}</a>`;
           filesUl.appendChild(li);
         }
+        lucide.createIcons();
       });
     } else if (!result.wing) {
       container.hidden = true;
@@ -201,7 +238,7 @@
     if (result.xfoil_results && result.xfoil_results.length > 0) {
       table.hidden = false;
       chartCanvas.hidden = false;
-      table.previousElementSibling.hidden = false; // Show "XFOIL Results" heading
+      table.previousElementSibling.hidden = false; 
       for (const row of result.xfoil_results) {
         const tr = document.createElement("tr");
         tr.innerHTML = `
@@ -223,35 +260,42 @@
   function renderChart(data) {
     const ctx = $("#xfoil-chart").getContext("2d");
     if (xfoilChart) xfoilChart.destroy();
+    
     xfoilChart = new Chart(ctx, {
       type: 'line',
       data: {
         labels: data.map(r => r.alpha_deg.toFixed(2)),
         datasets: [{
-          label: 'Cl',
+          label: 'Cl (Lift Coefficient)',
           data: data.map(r => r.cl),
-          borderColor: '#7aa2f7',
+          borderColor: '#22d3ee',
+          backgroundColor: 'rgba(34, 211, 238, 0.05)',
+          tension: 0.2,
           yAxisID: 'y'
         }, {
-          label: 'Cd',
+          label: 'Cd (Drag Coefficient)',
           data: data.map(r => r.cd),
-          borderColor: '#f7768e',
+          borderColor: '#f43f5e',
+          backgroundColor: 'rgba(244, 63, 94, 0.05)',
+          tension: 0.2,
           yAxisID: 'y1'
         }]
       },
       options: {
+        responsive: true,
+        maintainAspectRatio: false,
         scales: {
-          y: { position: 'left', ticks: { color: '#c0caf5' } },
-          y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#c0caf5' } }
+          y: { position: 'left', ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+          y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#94a3b8' } }
         },
-        plugins: { legend: { labels: { color: '#c0caf5' } } }
+        plugins: { legend: { labels: { color: '#f8fafc', font: { family: 'Outfit' } } } }
       }
     });
   }
 
   async function loadRuns() {
     const spinner = $("#history-spinner");
-    spinner.hidden = false;
+    if (spinner) spinner.hidden = false;
     try {
       const params = new URLSearchParams({ limit: runsState.limit, offset: runsState.offset });
       const q = $("#runs-search").value.trim();
@@ -273,11 +317,15 @@
       runs.forEach(row => {
         const tr = document.createElement("tr");
         tr.innerHTML = `
-          <td><a href="#" data-id="${row.run_id}">${row.run_id}</a></td>
-          <td class="status-${row.status}">${row.status}</td>
-          <td>${row.created_at_iso}</td>
-          <td>${row.intent_text}</td>
-          <td><a href="/api/v1/runs/${row.run_id}/report" target="_blank">Report</a></td>
+          <td><code><a href="#" data-id="${row.run_id}">${row.run_id.slice(0, 8)}...</a></code></td>
+          <td><span class="status-${row.status}">${row.status}</span></td>
+          <td style="white-space: nowrap; font-size: 0.8rem; color: var(--text-secondary);">${new Date(row.created_at_iso).toLocaleString()}</td>
+          <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${row.intent_text}</td>
+          <td>
+            <a href="/api/v1/runs/${row.run_id}/report" target="_blank" class="btn-secondary" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; text-decoration: none; display: inline-flex; align-items: center; gap: 0.25rem;">
+              <i data-lucide="external-link" style="width: 0.8rem; height: 0.8rem;"></i> Report
+            </a>
+          </td>
         `;
         tr.querySelector("a").addEventListener("click", async (e) => {
           e.preventDefault();
@@ -290,10 +338,11 @@
         tbody.appendChild(tr);
       });
       updatePager();
+      lucide.createIcons();
     } catch (error) {
       $("#runs tbody").innerHTML = `<tr><td colspan="5" class="status-failed">${error.message}</td></tr>`;
     } finally {
-      spinner.hidden = true;
+      if (spinner) spinner.hidden = true;
     }
   }
 
@@ -320,10 +369,7 @@
         analysis_mode: $("#analysis-mode").value,
       };
 
-      // Initial submission
       let result = await apiCall("/api/v1/runs", { method: "POST", body: JSON.stringify(body) });
-
-      // Poll until complete
       result = await pollStatus("/api/v1/runs", result);
 
       renderRunResult(result);
@@ -337,13 +383,64 @@
     }
   });
 
+  // 3D Wing Builder Form Submission
+  $("#wing-builder-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = $("#wing-run-btn");
+    const spinner = $("#wing-spinner");
+    btn.disabled = true;
+    spinner.hidden = false;
+    try {
+      const span = parseFloat($("#wing-span").value);
+      const sweep = parseFloat($("#wing-sweep").value);
+      const dihedral = parseFloat($("#wing-dihedral").value);
+      const twist = parseFloat($("#wing-twist").value);
+      const rootNaca = $("#wing-root-naca").value.trim();
+      const rootChord = parseFloat($("#wing-root-chord").value);
+      const tipNaca = $("#wing-tip-naca").value.trim();
+      const tipChord = parseFloat($("#wing-tip-chord").value);
+      const speedType = $("#wing-speed-type").value;
+      const speedVal = parseFloat($("#wing-speed-val").value);
+      const aoa = parseFloat($("#wing-aoa").value);
+      const analysisMode = $("#wing-analysis-mode").value;
+      const resume = $("#wing-resume").checked;
+
+      // Construct a string format matching the regex expectations in offline.py
+      let intentText = `3D wing, span ${span}m, root NACA ${rootNaca} chord ${rootChord}m, tip NACA ${tipNaca} chord ${tipChord}m`;
+      intentText += `, sweep ${sweep} deg, dihedral ${dihedral} deg, twist ${twist} deg`;
+      if (speedType === "velocity") {
+        intentText += `, velocity ${speedVal} m/s`;
+      } else {
+        intentText += `, mach ${speedVal}`;
+      }
+      intentText += ` at alpha ${aoa} deg`;
+
+      const body = {
+        intent_text: intentText,
+        resume: resume,
+        analysis_mode: analysisMode,
+      };
+
+      let result = await apiCall("/api/v1/runs", { method: "POST", body: JSON.stringify(body) });
+      result = await pollStatus("/api/v1/runs", result);
+
+      renderRunResult(result);
+      runsState.offset = 0;
+      loadRuns();
+    } catch (error) {
+      alert(`Wing Synthesis Error: ${error.message}`);
+    } finally {
+      btn.disabled = false;
+      spinner.hidden = true;
+    }
+  });
+
   function getVariables(containerId) {
       const variables = {};
       $$(`#${containerId} .variable-row`).forEach(row => {
           const key = row.querySelector(".variable-key").value.trim();
           const valuesStr = row.querySelector(".variable-values").value.trim();
           if (key && valuesStr) {
-              // Try to parse values. If it's a valid JSON array, use it. Otherwise split by comma.
               try {
                   variables[key] = JSON.parse(valuesStr);
                   if (!Array.isArray(variables[key])) throw new Error();
@@ -372,8 +469,6 @@
               variables: getVariables("study-variables"),
           };
           let result = await apiCall("/api/v1/studies", { method: "POST", body: JSON.stringify(body) });
-
-          // Poll until complete
           result = await pollStatus("/api/v1/studies", result);
 
           renderStudyResult(result);
@@ -401,9 +496,6 @@
           };
           let result = await apiCall("/api/v1/optimizations", { method: "POST", body: JSON.stringify(body) });
 
-          // Poll until complete
-          // Optimization response doesn't have a status field typically if it just returns the result immediately.
-          // Assuming our backend currently blocks until complete, or returns a status.
           if (result.status) {
              result = await pollStatus("/api/v1/optimizations", result);
           }
@@ -418,7 +510,7 @@
       }
   });
 
-  // Tabs
+  // Tabs selection
   $$(".tab-link").forEach(button => {
     button.addEventListener("click", () => {
       const tab = button.dataset.tab;
@@ -437,16 +529,17 @@
     row.innerHTML = `
       <input type="text" class="variable-key" placeholder="e.g. flow.reynolds_target">
       <input type="text" class="variable-values" placeholder="e.g. [1e6, 2e6] or 1e6, 2e6">
-      <button type="button" class="remove-btn">-</button>
+      <button type="button" class="remove-btn"><i data-lucide="trash-2" style="width:0.85rem; height:0.85rem;"></i></button>
     `;
     row.querySelector(".remove-btn").addEventListener("click", () => row.remove());
     container.appendChild(row);
+    lucide.createIcons();
   }
   $("#add-study-variable").addEventListener("click", () => addVariableRow("study-variables"));
   $("#add-opt-variable").addEventListener("click", () => addVariableRow("opt-variables"));
 
   $("#opt-objective").addEventListener("change", (e) => {
-      $("#opt-target-cl").hidden = e.target.value !== "target_cl";
+      $("#opt-target-cl-wrapper").style.display = e.target.value === "target_cl" ? "block" : "none";
   });
 
   // History search and filter
@@ -476,6 +569,8 @@
       th.addEventListener("click", () => sortTable("xfoil-results", th.dataset.sort, true));
   });
 
+  // Initial startup
   loadVersion();
   loadRuns();
+  lucide.createIcons();
 })();

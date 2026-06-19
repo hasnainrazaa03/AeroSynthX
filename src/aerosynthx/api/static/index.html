@@ -3,137 +3,422 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AeroSynthX</title>
+    <title>AeroSynthX — AI-Assisted Aerodynamic Design</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/static/styles.css" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
   </head>
   <body>
-    <header>
-      <h1>AeroSynthX</h1>
-      <div>
-        <label for="api-key" style="margin-right: 0.5em;">API Key:</label>
-        <input type="text" id="api-key" placeholder="Enter key (optional)" style="margin-right: 1em;" />
-        <span id="version" class="badge">…</span>
+    <!-- Background glowing gradient circles -->
+    <div class="glow-container">
+      <div class="blob blob-1"></div>
+      <div class="blob blob-2"></div>
+      <div class="blob blob-3"></div>
+    </div>
+
+    <header class="navbar">
+      <div class="brand">
+        <div class="logo-wrapper">
+          <i data-lucide="wind" class="logo-icon"></i>
+        </div>
+        <div>
+          <div class="brand-name">AEROSYNTHX</div>
+          <div class="brand-sub">AI-Assisted Aerodynamic Design</div>
+        </div>
+      </div>
+
+      <nav class="nav-tabs tabs">
+        <button class="tab-link active" data-tab="single-run">
+          <i data-lucide="sparkles"></i> Single Run
+        </button>
+        <button class="tab-link" data-tab="wing-builder">
+          <i data-lucide="cpu"></i> 3D Wing Builder
+        </button>
+        <button class="tab-link" data-tab="study">
+          <i data-lucide="line-chart"></i> Parametric Study
+        </button>
+        <button class="tab-link" data-tab="optimization">
+          <i data-lucide="brain-circuit"></i> Optimization
+        </button>
+      </nav>
+
+      <div class="header-actions">
+        <div class="api-key-container">
+          <i data-lucide="key" class="field-icon"></i>
+          <input type="text" id="api-key" placeholder="API Key (optional)" />
+        </div>
+        <span id="version" class="badge-version">...</span>
       </div>
     </header>
 
-    <main>
-      <div class="tabs">
-        <button class="tab-link active" data-tab="single-run">Single Run</button>
-        <button class="tab-link" data-tab="study">Parametric Study</button>
-        <button class="tab-link" data-tab="optimization">Optimization</button>
-      </div>
-
-      <!-- Single Run Tab -->
-      <div id="single-run" class="tab-content active">
-        <section class="panel">
-          <h2>Design Intent</h2>
-          <form id="intent-form">
-            <textarea id="intent-text" rows="3" placeholder="e.g. NACA 2412 at 50 m/s, alpha 3 deg, chord 1.0 m."></textarea>
-            <div class="row">
-              <div>
-                <label for="analysis-mode">Mode:</label>
-                <select id="analysis-mode" style="margin-right: 1em;">
-                  <option value="openfoam" selected>OpenFOAM</option>
-                  <option value="xfoil">XFOIL</option>
-                </select>
-                <label><input type="checkbox" id="resume" checked /> resume</label>
-              </div>
-              <button type="submit" id="run-btn">
-                <span id="run-spinner" class="loader" hidden></span> Run
-              </button>
+    <main class="dashboard-grid">
+      <!-- Left side dynamic workspace -->
+      <div class="workspace-area">
+        
+        <!-- Single Run Tab -->
+        <div id="single-run" class="tab-content active">
+          <section class="panel glow-border">
+            <div class="panel-header">
+              <h2>Command Input</h2>
+              <span class="badge-status mode-badge">Airfoil Focus</span>
             </div>
-          </form>
-        </section>
-      </div>
-
-      <!-- Study Tab -->
-      <div id="study" class="tab-content" hidden>
-        <section class="panel">
-          <h2>Parametric Study</h2>
-          <form id="study-form">
-            <input type="text" id="study-name" placeholder="Study Name" required />
-            <textarea id="study-base-intent" rows="3" placeholder="Base intent JSON..."></textarea>
-            <div id="study-variables"></div>
-            <button type="button" id="add-study-variable">Add Variable</button>
-            <button type="submit" id="run-study-btn">
-              <span id="study-spinner" class="loader" hidden></span> Run Study
-            </button>
-          </form>
-        </section>
-      </div>
-
-      <!-- Optimization Tab -->
-      <div id="optimization" class="tab-content" hidden>
-          <section class="panel">
-              <h2>Optimization</h2>
-              <form id="opt-form">
-                  <select id="opt-objective">
-                      <option value="maximize_cl_cd">Maximize Cl/Cd</option>
-                      <option value="minimize_cd">Minimize Cd</option>
-                      <option value="target_cl">Target Cl</option>
-                  </select>
-                  <input type="number" id="opt-target-cl" placeholder="Target Cl" hidden/>
-                  <textarea id="opt-base-intent" rows="3" placeholder="Base intent JSON..."></textarea>
-                  <div id="opt-variables"></div>
-                  <button type="button" id="add-opt-variable">Add Variable</button>
-                  <button type="submit" id="run-opt-btn">
-                      <span id="opt-spinner" class="loader" hidden></span> Run Optimization
-                  </button>
-              </form>
+            <p class="panel-desc">Write your aerodynamic intent in plain English.</p>
+            <form id="intent-form">
+              <textarea id="intent-text" rows="3" placeholder="e.g. NACA 2412 at 50 m/s, alpha 3 deg, chord 1.0 m."></textarea>
+              <div class="form-row-actions">
+                <div class="mode-select-group">
+                  <div class="select-wrapper">
+                    <i data-lucide="gauge"></i>
+                    <select id="analysis-mode">
+                      <option value="openfoam" selected>OpenFOAM</option>
+                      <option value="xfoil">XFOIL</option>
+                    </select>
+                  </div>
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="resume" checked />
+                    <span>Resume previous run</span>
+                  </label>
+                </div>
+                <button type="submit" id="run-btn" class="btn-primary">
+                  <span id="run-spinner" class="loader" hidden></span>
+                  <span>Run Intent</span>
+                  <i data-lucide="arrow-right"></i>
+                </button>
+              </div>
+            </form>
           </section>
+        </div>
+
+        <!-- 3D Wing Builder Tab -->
+        <div id="wing-builder" class="tab-content" hidden>
+          <section class="panel glow-border">
+            <div class="panel-header">
+              <h2>3D Wing Builder</h2>
+              <span class="badge-status mode-badge">3D Mesh Ready</span>
+            </div>
+            <p class="panel-desc">Configure structural and flow conditions for a 3D Wing case.</p>
+            <form id="wing-builder-form">
+              <div class="form-grid-columns">
+                <div class="form-field">
+                  <label for="wing-span">Span (meters)</label>
+                  <input type="number" id="wing-span" value="12.0" step="0.1" min="0.1" required />
+                </div>
+                <div class="form-field">
+                  <label for="wing-sweep">Sweep (degrees)</label>
+                  <input type="number" id="wing-sweep" value="10.0" step="0.1" min="0" required />
+                </div>
+                <div class="form-field">
+                  <label for="wing-dihedral">Dihedral (degrees)</label>
+                  <input type="number" id="wing-dihedral" value="2.0" step="0.1" required />
+                </div>
+                <div class="form-field">
+                  <label for="wing-twist">Twist (degrees)</label>
+                  <input type="number" id="wing-twist" value="4.0" step="0.1" required />
+                </div>
+              </div>
+
+              <div class="form-section-title">Airfoil Specifications</div>
+              <div class="form-grid-columns">
+                <div class="form-field">
+                  <label for="wing-root-naca">Root NACA Designation</label>
+                  <input type="text" id="wing-root-naca" value="0012" placeholder="e.g. 0012 or 23012" required />
+                </div>
+                <div class="form-field">
+                  <label for="wing-root-chord">Root Chord (meters)</label>
+                  <input type="number" id="wing-root-chord" value="1.5" step="0.1" min="0.1" required />
+                </div>
+                <div class="form-field">
+                  <label for="wing-tip-naca">Tip NACA Designation</label>
+                  <input type="text" id="wing-tip-naca" value="4415" placeholder="e.g. 4415 or 23015" required />
+                </div>
+                <div class="form-field">
+                  <label for="wing-tip-chord">Tip Chord (meters)</label>
+                  <input type="number" id="wing-tip-chord" value="0.75" step="0.1" min="0.1" required />
+                </div>
+              </div>
+
+              <div class="form-section-title">Flow & Solver Parameters</div>
+              <div class="form-grid-columns">
+                <div class="form-field">
+                  <label for="wing-speed-type">Speed Parameter</label>
+                  <select id="wing-speed-type">
+                    <option value="velocity" selected>Velocity (m/s)</option>
+                    <option value="mach">Mach Number</option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label for="wing-speed-val">Speed Value</label>
+                  <input type="number" id="wing-speed-val" value="60.0" step="0.1" min="0.01" required />
+                </div>
+                <div class="form-field">
+                  <label for="wing-aoa">Angle of Attack (deg)</label>
+                  <input type="number" id="wing-aoa" value="2.0" step="0.1" required />
+                </div>
+                <div class="form-field">
+                  <label for="wing-analysis-mode">Solver Mode</label>
+                  <select id="wing-analysis-mode">
+                    <option value="openfoam" selected>OpenFOAM</option>
+                    <option value="xfoil">XFOIL</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-row-actions" style="margin-top: 1.5rem;">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="wing-resume" checked />
+                  <span>Resume previous run</span>
+                </label>
+                <button type="submit" id="wing-run-btn" class="btn-primary">
+                  <span id="wing-spinner" class="loader" hidden></span>
+                  <span>Synthesize Wing</span>
+                  <i data-lucide="zap"></i>
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+
+        <!-- Study Tab -->
+        <div id="study" class="tab-content" hidden>
+          <section class="panel glow-border">
+            <div class="panel-header">
+              <h2>Parametric Study</h2>
+              <span class="badge-status mode-badge">Batch Mode</span>
+            </div>
+            <p class="panel-desc">Run multiple aerodynamic cases across a parameter grid.</p>
+            <form id="study-form">
+              <div class="form-field">
+                <label for="study-name">Study Name</label>
+                <input type="text" id="study-name" placeholder="e.g. NACA 0012 Alpha Sweep" required />
+              </div>
+              <div class="form-field">
+                <label for="study-base-intent">Base Intent (JSON)</label>
+                <textarea id="study-base-intent" rows="5" placeholder='{
+  "airfoil": {
+    "family": "naca4",
+    "designation": "0012",
+    "chord_m": 1.0
+  },
+  "flow": {
+    "altitude_m": 0.0,
+    "velocity_m_s": 50.0,
+    "angle_of_attack_deg": 0.0
+  }
+}'></textarea>
+              </div>
+              
+              <div class="form-section-title">Study Variables</div>
+              <div id="study-variables" class="variables-list"></div>
+              <div class="variables-actions">
+                <button type="button" id="add-study-variable" class="btn-secondary">
+                  <i data-lucide="plus"></i> Add Parameter
+                </button>
+                <button type="submit" id="run-study-btn" class="btn-primary">
+                  <span id="study-spinner" class="loader" hidden></span>
+                  <span>Launch Study</span>
+                  <i data-lucide="arrow-right"></i>
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+
+        <!-- Optimization Tab -->
+        <div id="optimization" class="tab-content" hidden>
+          <section class="panel glow-border">
+            <div class="panel-header">
+              <h2>Optimization Engine</h2>
+              <span class="badge-status mode-badge">AI Optimizer</span>
+            </div>
+            <p class="panel-desc">Find optimal geometries according to specific aerodynamic objectives.</p>
+            <form id="opt-form">
+              <div class="form-grid-columns">
+                <div class="form-field">
+                  <label for="opt-objective">Objective</label>
+                  <select id="opt-objective">
+                    <option value="maximize_cl_cd">Maximize Cl/Cd ratio</option>
+                    <option value="minimize_cd">Minimize Drag Coefficient (Cd)</option>
+                    <option value="target_cl">Reach Target Lift Coefficient (Cl)</option>
+                  </select>
+                </div>
+                <div class="form-field" id="opt-target-cl-wrapper" style="display: none;">
+                  <label for="opt-target-cl">Target Cl Value</label>
+                  <input type="number" id="opt-target-cl" value="0.5" step="0.05" />
+                </div>
+              </div>
+              
+              <div class="form-field" style="margin-top: 1rem;">
+                <label for="opt-base-intent">Base Intent (JSON)</label>
+                <textarea id="opt-base-intent" rows="4" placeholder='{
+  "airfoil": {
+    "family": "naca4",
+    "designation": "0012",
+    "chord_m": 1.0
+  },
+  "flow": {
+    "altitude_m": 0.0,
+    "velocity_m_s": 50.0,
+    "angle_of_attack_deg": 2.0
+  }
+}'></textarea>
+              </div>
+              
+              <div class="form-section-title">Design Bounds</div>
+              <div id="opt-variables" class="variables-list"></div>
+              <div class="variables-actions">
+                <button type="button" id="add-opt-variable" class="btn-secondary">
+                  <i data-lucide="plus"></i> Add Variable Bound
+                </button>
+                <button type="submit" id="run-opt-btn" class="btn-primary">
+                  <span id="opt-spinner" class="loader" hidden></span>
+                  <span>Run Optimizer</span>
+                  <i data-lucide="arrow-right"></i>
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
       </div>
 
-      <section class="panel" id="result-panel" hidden>
-        <h2>Result</h2>
-        <div id="result-summary"></div>
-        <h3>Stages</h3>
-        <table id="stages">
-          <thead>
-            <tr><th data-sort="name">Name</th><th data-sort="status">Status</th><th data-sort="ms">ms</th><th>Digest</th><th>Error</th></tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-        <div id="result-details">
-          <h3>Case files</h3>
-          <ul id="files"></ul>
-          <h3>XFOIL Results</h3>
-          <canvas id="xfoil-chart" hidden></canvas>
-          <table id="xfoil-results">
-            <thead>
-              <tr><th data-sort="alpha">Alpha (deg)</th><th data-sort="cl">Cl</th><th data-sort="cd">Cd</th><th data-sort="cm">Cm</th></tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </section>
+      <!-- Right side output area -->
+      <div class="output-area">
+        
+        <!-- Live Run Workspace Results -->
+        <section class="panel results-panel glow-border" id="result-panel" hidden>
+          <div class="panel-header">
+            <h2>Active Run Outputs</h2>
+            <span class="badge-status ready-badge">Active Workspace</span>
+          </div>
+          
+          <div id="result-summary" class="summary-card"></div>
+          
+          <div class="outputs-subgrid">
+            <div class="stages-section">
+              <h3>Simulation Pipeline Stages</h3>
+              <div class="table-container">
+                <table id="stages">
+                  <thead>
+                    <tr>
+                      <th data-sort="name">Name</th>
+                      <th data-sort="status">Status</th>
+                      <th data-sort="ms">Time (ms)</th>
+                      <th>Digest</th>
+                      <th>Errors</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+            
+            <div id="result-details">
+              <h3>Generated Synthesis Files</h3>
+              <ul id="files" class="files-list"></ul>
+              
+              <div class="polar-section">
+                <h3>Polar Diagnostics</h3>
+                <canvas id="xfoil-chart" hidden></canvas>
+                <div class="table-container" style="margin-top: 1rem;">
+                  <table id="xfoil-results">
+                    <thead>
+                      <tr>
+                        <th data-sort="alpha">Alpha (deg)</th>
+                        <th data-sort="cl">Cl</th>
+                        <th data-sort="cd">Cd</th>
+                        <th data-sort="cm">Cm</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
 
-      <section class="panel" style="grid-column: 1 / -1;">
-        <h2>Run History <span id="history-spinner" class="loader" hidden></span></h2>
-        <div class="runs-controls">
-          <input id="runs-search" type="search" placeholder="Search intent text (live)…" style="flex-grow: 1;" />
-          <select id="runs-status">
-            <option value="">All statuses</option>
-            <option value="completed">Completed</option>
-            <option value="failed">Failed</option>
-          </select>
-        </div>
-        <table id="runs">
-          <thead>
-            <tr><th>Run ID</th><th>Status</th><th>Created</th><th>Intent</th><th>Report</th></tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-        <div class="runs-pager">
-          <button id="runs-prev" type="button" disabled>Prev</button>
-          <span id="runs-page-info"></span>
-          <button id="runs-next" type="button" disabled>Next</button>
-        </div>
-      </section>
+        <!-- Trust Anchor Card -->
+        <section class="panel trust-panel">
+          <div class="panel-header">
+            <h2><i data-lucide="lock" class="panel-header-icon"></i> Deterministic Engine Guarantee</h2>
+          </div>
+          <p class="trust-desc">All aerodynamics, coordinates, and mesh coordinates are calculated via verified solvers. The orchestration engine runs without heuristic fabrication.</p>
+          <div class="trust-indicators">
+            <div class="indicator-item">
+              <i data-lucide="check-circle-2"></i>
+              <span>Intent parsing</span>
+            </div>
+            <div class="indicator-item">
+              <i data-lucide="check-circle-2"></i>
+              <span>Engineering parameterization</span>
+            </div>
+            <div class="indicator-item">
+              <i data-lucide="check-circle-2"></i>
+              <span>Geometry generation</span>
+            </div>
+            <div class="indicator-item">
+              <i data-lucide="check-circle-2"></i>
+              <span>Case assembly</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- History list (full width below columns) -->
+      <div class="history-area">
+        <section class="panel history-panel">
+          <div class="panel-header">
+            <h2>Run Synthesis History <span id="history-spinner" class="loader" hidden></span></h2>
+          </div>
+          <div class="runs-controls">
+            <div class="search-wrapper">
+              <i data-lucide="search"></i>
+              <input id="runs-search" type="search" placeholder="Search intent logs (live)..." />
+            </div>
+            <div class="select-wrapper filter-wrapper">
+              <i data-lucide="filter"></i>
+              <select id="runs-status">
+                <option value="">All statuses</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
+              </select>
+            </div>
+          </div>
+          
+          <div class="table-container">
+            <table id="runs">
+              <thead>
+                <tr>
+                  <th>Run ID</th>
+                  <th>Status</th>
+                  <th>Created</th>
+                  <th>Parsed Aerodynamic Intent</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          
+          <div class="runs-pager">
+            <button id="runs-prev" type="button" class="btn-secondary" disabled>
+              <i data-lucide="chevron-left"></i> Prev
+            </button>
+            <span id="runs-page-info"></span>
+            <button id="runs-next" type="button" class="btn-secondary" disabled>
+              Next <i data-lucide="chevron-right"></i>
+            </button>
+          </div>
+        </section>
+      </div>
     </main>
+
+    <footer class="app-footer">
+      <div>Orchestrated via <strong>OpenFOAM</strong> • <strong>XFOIL</strong> • <strong>FastAPI</strong></div>
+      <div>AeroSynthX Systems — Phase 25 Solid Release</div>
+    </footer>
 
     <script src="/static/app.js" defer></script>
   </body>

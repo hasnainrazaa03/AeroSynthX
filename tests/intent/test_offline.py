@@ -124,3 +124,18 @@ def test_envelope_violation_propagates_from_schema() -> None:
 
     with pytest.raises(ValidationError):
         parse_offline("NACA 0012 at Mach 0.5, sea level.")
+
+
+def test_3d_wing_parsing() -> None:
+    res = parse_offline("3D wing, span 12m, root NACA 0012 chord 1.5m, tip NACA 4415 chord 0.75m, sweep 10, dihedral 2, twist 4, velocity 60 m/s")
+    assert res.intent.wing is not None
+    assert res.intent.wing.span == pytest.approx(12.0)
+    assert res.intent.wing.sweep_deg == pytest.approx(10.0)
+    assert res.intent.wing.dihedral_deg == pytest.approx(2.0)
+    assert res.intent.wing.twist_deg == pytest.approx(4.0)
+    assert res.intent.wing.root_airfoil.designation == "0012"
+    assert res.intent.wing.root_airfoil.chord_m == pytest.approx(1.5)
+    assert res.intent.wing.tip_airfoil.designation == "4415"
+    assert res.intent.wing.tip_airfoil.chord_m == pytest.approx(0.75)
+    assert res.intent.flow.velocity_m_s == pytest.approx(60.0)
+

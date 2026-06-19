@@ -181,8 +181,36 @@ class RunResult:
             "solve": _solve_dict(self.solve_result) if self.solve_result else None,
             "xfoil": [asdict(r) for r in self.xfoil_results] if self.xfoil_results else None,
             "xfoil_results": [asdict(r) for r in self.xfoil_results] if self.xfoil_results else None,
-            "wing": asdict(self.wing) if self.wing else None,
+            "wing": _wing_dict(self.wing) if self.wing else None,
         }
+
+
+def _airfoil_dict(airfoil: Any) -> dict[str, Any] | None:
+    if airfoil is None:
+        return None
+    return {
+        "name": airfoil.name,
+        "chord_m": airfoil.chord_m,
+        "x": list(airfoil.x),
+        "y": list(airfoil.y),
+        "closed_trailing_edge": airfoil.closed_trailing_edge,
+        "metadata": dict(airfoil.metadata),
+    }
+
+
+def _wing_dict(wing: Wing) -> dict[str, Any]:
+    return {
+        "span": wing.span,
+        "root_chord": wing.root_chord,
+        "tip_chord": wing.tip_chord,
+        "sweep_deg": wing.sweep_deg,
+        "dihedral_deg": wing.dihedral_deg,
+        "twist_deg": wing.twist_deg,
+        "root_airfoil": _airfoil_dict(wing.root_airfoil),
+        "tip_airfoil": _airfoil_dict(wing.tip_airfoil) if wing.tip_airfoil else None,
+        "coordinates": wing.coordinates,
+        "metadata": dict(wing.metadata),
+    }
 
 
 def _solve_dict(state: SolveResult) -> dict[str, Any]:
@@ -575,8 +603,8 @@ class Pipeline:
                 try:
                     wing = generate_wing(intent.wing)
                     wing_path = run_dir / "wing.json"
-                    wing_path.write_text(json.dumps(asdict(wing), indent=2))
-                    record["digest"] = _sha256_of_json(asdict(wing))
+                    wing_path.write_text(json.dumps(_wing_dict(wing), indent=2))
+                    record["digest"] = _sha256_of_json(_wing_dict(wing))
                 except Exception as exc:
                     record["error"] = str(exc)
             stages.append(record["result"])

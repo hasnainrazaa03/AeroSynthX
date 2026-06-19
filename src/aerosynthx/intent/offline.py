@@ -220,6 +220,97 @@ def parse_offline(text: str) -> ParseResult:
             code="intent.offline.empty_input",
         )
 
+    # Check if the input is a 3D Wing specification
+    if "3d wing" in text.lower() or "wing" in text.lower():
+        span_m = 10.0
+        span_match = re.search(r"span\s*([0-9]*\.?[0-9]+)\s*(?:m|meters)?", text, re.IGNORECASE)
+        if span_match:
+            span_m = float(span_match.group(1))
+
+        sweep_deg = 0.0
+        sweep_match = re.search(r"sweep\s*([0-9]*\.?[0-9]+)\s*(?:deg|degrees)?", text, re.IGNORECASE)
+        if sweep_match:
+            sweep_deg = float(sweep_match.group(1))
+
+        dihedral_deg = 0.0
+        dihedral_match = re.search(r"dihedral\s*([0-9]*\.?[0-9]+)\s*(?:deg|degrees)?", text, re.IGNORECASE)
+        if dihedral_match:
+            dihedral_deg = float(dihedral_match.group(1))
+
+        twist_deg = 0.0
+        twist_match = re.search(r"twist\s*([0-9]*\.?[0-9]+)\s*(?:deg|degrees)?", text, re.IGNORECASE)
+        if twist_match:
+            twist_deg = float(twist_match.group(1))
+
+        root_chord = 1.0
+        root_designation = "0012"
+        root_family = "naca4"
+        root_chord_match = re.search(r"root\s+naca\s*([0-9]{4,5})\s+chord\s*([0-9]*\.?[0-9]+)", text, re.IGNORECASE)
+        if root_chord_match:
+            root_designation = root_chord_match.group(1)
+            root_family = "naca5" if len(root_designation) == 5 else "naca4"
+            root_chord = float(root_chord_match.group(2))
+        else:
+            root_match = re.search(r"root\s+naca\s*([0-9]{4,5})", text, re.IGNORECASE)
+            if root_match:
+                root_designation = root_match.group(1)
+                root_family = "naca5" if len(root_designation) == 5 else "naca4"
+            root_c_match = re.search(r"root\s+chord\s*([0-9]*\.?[0-9]+)", text, re.IGNORECASE)
+            if root_c_match:
+                root_chord = float(root_c_match.group(1))
+
+        tip_chord = 0.5
+        tip_designation = "0012"
+        tip_family = "naca4"
+        tip_chord_match = re.search(r"tip\s+naca\s*([0-9]{4,5})\s+chord\s*([0-9]*\.?[0-9]+)", text, re.IGNORECASE)
+        if tip_chord_match:
+            tip_designation = tip_chord_match.group(1)
+            tip_family = "naca5" if len(tip_designation) == 5 else "naca4"
+            tip_chord = float(tip_chord_match.group(2))
+        else:
+            tip_match = re.search(r"tip\s+naca\s*([0-9]{4,5})", text, re.IGNORECASE)
+            if tip_match:
+                tip_designation = tip_match.group(1)
+                tip_family = "naca5" if len(tip_designation) == 5 else "naca4"
+            tip_c_match = re.search(r"tip\s+chord\s*([0-9]*\.?[0-9]+)", text, re.IGNORECASE)
+            if tip_c_match:
+                tip_chord = float(tip_c_match.group(1))
+
+        velocity = _extract_velocity_m_s(text)
+        mach = _extract_mach(text)
+        if velocity is None and mach is None:
+            velocity = 50.0
+        aoa = _extract_aoa_deg(text) or 0.0
+
+        from aerosynthx.intent.schemas import WingSpec
+        wing_spec = WingSpec(
+            span=span_m,
+            sweep_deg=sweep_deg,
+            dihedral_deg=dihedral_deg,
+            twist_deg=twist_deg,
+            root_airfoil=AirfoilSpec(family=root_family, designation=root_designation, chord_m=root_chord),
+            tip_airfoil=AirfoilSpec(family=tip_family, designation=tip_designation, chord_m=tip_chord)
+        )
+        flow = FlowCondition(
+            altitude_m=0.0,
+            velocity_m_s=velocity,
+            mach=mach,
+            angle_of_attack_deg=aoa,
+        )
+        intent = DesignIntent(
+            airfoil=None,
+            wing=wing_spec,
+            flow=flow,
+            assumptions=[],
+            provenance=ProvenanceMap(fields={}),
+        )
+        return ParseResult(
+            intent=intent,
+            raw_input=text,
+            model=OFFLINE_MODEL_NAME,
+            attempts=1,
+        )
+
     naca_result = _extract_naca(text)
     if naca_result is None:
         raise LLMParseError(
