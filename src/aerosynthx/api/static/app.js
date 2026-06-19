@@ -378,9 +378,12 @@
   }
 
   function renderStages(stages) {
-    const tableContainer = $("#stages").parentElement;
-    tableContainer.hidden = false;
-    const tbody = $("#stages tbody");
+    const stagesTable = $("#stages");
+    if (!stagesTable) return;
+    const tableContainer = stagesTable.parentElement;
+    if (tableContainer) tableContainer.hidden = false;
+    const tbody = stagesTable.querySelector("tbody");
+    if (!tbody) return;
     tbody.innerHTML = "";
     for (const s of stages) {
       const tr = document.createElement("tr");
@@ -397,21 +400,22 @@
 
   function renderFiles(result) {
     const filesUl = $("#files");
+    if (!filesUl) return;
     filesUl.innerHTML = "";
     const container = filesUl.parentElement;
 
     // Handle 3D wing json indicator
     if (result.wing) {
-       container.hidden = false;
-       filesUl.previousElementSibling.hidden = false;
+       if (container) container.hidden = false;
+       if (filesUl.previousElementSibling) filesUl.previousElementSibling.hidden = false;
        const li = document.createElement("li");
        li.innerHTML = `<i data-lucide="file-check" style="margin-right:0.5rem; width:1.1rem; color:var(--success-color);"></i><span>3D Wing representation generated. Check run workspace directory.</span>`;
        filesUl.appendChild(li);
     }
 
     if (result.case_dir && result.status === "completed") {
-      container.hidden = false;
-      filesUl.previousElementSibling.hidden = false;
+      if (container) container.hidden = false;
+      if (filesUl.previousElementSibling) filesUl.previousElementSibling.hidden = false;
       apiCall(`/api/v1/runs/${result.run_id}/files`).then(({ files }) => {
         for (const f of files) {
           const li = document.createElement("li");
@@ -421,8 +425,8 @@
         lucide.createIcons();
       });
     } else if (!result.wing) {
-      container.hidden = true;
-      filesUl.previousElementSibling.hidden = true;
+      if (container) container.hidden = true;
+      if (filesUl.previousElementSibling) filesUl.previousElementSibling.hidden = true;
     }
   }
 

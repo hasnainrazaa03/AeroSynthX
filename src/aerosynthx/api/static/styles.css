@@ -840,6 +840,10 @@ tr:last-child td {
   height: 14px;
 }
 
+.loader[hidden] {
+  display: none !important;
+}
+
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
