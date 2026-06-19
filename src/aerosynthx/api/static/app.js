@@ -6,6 +6,10 @@
   const runsState = { offset: 0, limit: 10, total: 0 };
   let searchTimeout = null;
   let xfoilChart = null;
+  let threeScene = null;
+  let threeRenderer = null;
+  let threeCamera = null;
+  let threeControls = null;
 
   // --- API & State Management ---
   const apiKeyInput = $("#api-key");
@@ -88,6 +92,174 @@
     rows.forEach(r => tbody.appendChild(r));
   }
 
+  // --- Three.js 3D Wing Renderer ---
+  function initThreeJS(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    container.innerHTML = "";
+
+    const width = container.clientWidth || 400;
+    const height = container.clientHeight || 380;
+
+    threeScene = new THREE.Scene();
+    threeScene.background = null;
+
+    threeCamera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+
+    threeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    threeRenderer.setSize(width, height);
+    threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(threeRenderer.domElement);
+
+    threeControls = new THREE.OrbitControls(threeCamera, threeRenderer.domElement);
+    threeControls.enableDamping = true;
+    threeControls.dampingFactor = 0.05;
+    threeControls.maxPolarAngle = Math.PI;
+    threeControls.minDistance = 2;
+    threeControls.maxDistance = 100;
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.45);
+    threeScene.add(ambientLight);
+
+    const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.85);
+    dirLight1.position.set(10, 20, 15);
+    threeScene.add(dirLight1);
+
+    const dirLight2 = new THREE.DirectionalLight(0x0ea5e9, 0.55);
+    dirLight2.position.set(-10, -20, -15);
+    threeScene.add(dirLight2);
+
+    const pointLight = new THREE.PointLight(0x6366f1, 1.2, 30);
+    pointLight.position.set(0, 5, 0);
+    threeScene.add(pointLight);
+
+    let animationFrameId;
+    function animate() {
+      animationFrameId = requestAnimationFrame(animate);
+      if (threeControls) threeControls.update();
+      if (threeRenderer && threeScene && threeCamera) {
+        threeRenderer.render(threeScene, threeCamera);
+      }
+    }
+    animate();
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (!container || !threeCamera || !threeRenderer) return;
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      if (w === 0 || h === 0) return;
+      threeCamera.aspect = w / h;
+      threeCamera.updateProjectionMatrix();
+      threeRenderer.setSize(w, h);
+    });
+    resizeObserver.observe(container);
+
+    container.cleanup = () => {
+      cancelAnimationFrame(animationFrameId);
+      resizeObserver.disconnect();
+      if (threeControls) threeControls.dispose();
+      if (threeRenderer) threeRenderer.dispose();
+      threeScene = null;
+      threeCamera = null;
+      threeRenderer = null;
+      threeControls = null;
+    };
+  }
+
+  function render3DWing(coordinates) {
+    const containerEl = $("#wing-3d-container");
+    if (!containerEl) return;
+    containerEl.hidden = false;
+
+    const canvasContainer = document.getElementById("wing-3d-canvas-container");
+    if (canvasContainer.cleanup) {
+      canvasContainer.cleanup();
+    }
+    initThreeJS("wing-3d-canvas-container");
+
+    if (!threeScene) return;
+
+    const geometry = new THREE.BufferGeometry();
+    
+    const numStations = coordinates.length;
+    if (numStations < 2) return;
+    const numPoints = coordinates[0].length;
+
+    const vertices = [];
+    const indices = [];
+
+    for (let s = 0; s < numStations; s++) {
+      for (let p = 0; p < numPoints; p++) {
+        const pt = coordinates[s][p];
+        vertices.push(pt[1], pt[2], pt[0]);
+      }
+    }
+
+    for (let s = 0; s < numStations - 1; s++) {
+      for (let p = 0; p < numPoints; p++) {
+        const nextP = (p + 1) % numPoints;
+
+        const v00 = s * numPoints + p;
+        const v10 = (s + 1) * numPoints + p;
+        const v01 = s * numPoints + nextP;
+        const v11 = (s + 1) * numPoints + nextP;
+
+        indices.push(v00, v10, v01);
+        indices.push(v10, v11, v01);
+      }
+    }
+
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+
+    const material = new THREE.MeshStandardMaterial({
+      color: 0x0ea5e9,
+      roughness: 0.2,
+      metalness: 0.8,
+      side: THREE.DoubleSide,
+      flatShading: false
+    });
+
+    const mesh = new THREE.Mesh(geometry, material);
+    threeScene.add(mesh);
+
+    const mirroredMesh = new THREE.Mesh(geometry, material);
+    mirroredMesh.scale.set(-1, 1, 1);
+    threeScene.add(mirroredMesh);
+
+    const wireframeMaterial = new THREE.MeshBasicMaterial({
+      color: 0x0ea5e9,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.15
+    });
+
+    const wireframe = new THREE.Mesh(geometry, wireframeMaterial);
+    threeScene.add(wireframe);
+
+    const mirroredWireframe = new THREE.Mesh(geometry, wireframeMaterial);
+    mirroredWireframe.scale.set(-1, 1, 1);
+    threeScene.add(mirroredWireframe);
+
+    geometry.computeBoundingBox();
+    const bbox = geometry.boundingBox;
+    const center = new THREE.Vector3();
+    bbox.getCenter(center);
+    center.x = 0;
+
+    threeControls.target.copy(center);
+    
+    const size = new THREE.Vector3();
+    bbox.getSize(size);
+    const maxDim = Math.max(size.x * 2, size.y, size.z);
+    
+    threeCamera.position.set(0, center.y + maxDim * 0.7, center.z + maxDim * 1.1);
+    threeCamera.lookAt(center);
+    threeControls.update();
+  }
+
   // --- UI Rendering ---
   function renderRunResult(result) {
     $("#result-panel").hidden = false;
@@ -128,6 +300,17 @@
     renderFiles(result);
     renderXfoilResults(result);
     
+    if (result.wing && result.wing.coordinates) {
+      render3DWing(result.wing.coordinates);
+    } else {
+      const containerEl = $("#wing-3d-container");
+      if (containerEl) containerEl.hidden = true;
+      const canvasContainer = document.getElementById("wing-3d-canvas-container");
+      if (canvasContainer && canvasContainer.cleanup) {
+        canvasContainer.cleanup();
+      }
+    }
+    
     // Smooth scroll to the result panel
     $("#result-panel").scrollIntoView({ behavior: 'smooth' });
     lucide.createIcons();
@@ -156,6 +339,13 @@
     $("#stages").parentElement.hidden = true;
     $("#xfoil-results").parentElement.hidden = true;
     
+    const containerEl = $("#wing-3d-container");
+    if (containerEl) containerEl.hidden = true;
+    const canvasContainer = document.getElementById("wing-3d-canvas-container");
+    if (canvasContainer && canvasContainer.cleanup) {
+      canvasContainer.cleanup();
+    }
+    
     $("#result-panel").scrollIntoView({ behavior: 'smooth' });
     lucide.createIcons();
   }
@@ -175,6 +365,13 @@
     // Hide single-run specific elements
     $("#stages").parentElement.hidden = true;
     $("#xfoil-results").parentElement.hidden = true;
+    
+    const containerEl = $("#wing-3d-container");
+    if (containerEl) containerEl.hidden = true;
+    const canvasContainer = document.getElementById("wing-3d-canvas-container");
+    if (canvasContainer && canvasContainer.cleanup) {
+      canvasContainer.cleanup();
+    }
     
     $("#result-panel").scrollIntoView({ behavior: 'smooth' });
     lucide.createIcons();

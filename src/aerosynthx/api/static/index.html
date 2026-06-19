@@ -10,6 +10,8 @@
     <link rel="stylesheet" href="/static/styles.css" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   </head>
   <body>
     <!-- Background glowing gradient circles -->
@@ -294,6 +296,17 @@
           </div>
           
           <div id="result-summary" class="summary-card"></div>
+
+          <!-- 3D Wing Canvas Preview -->
+          <div id="wing-3d-container" class="wing-3d-preview-card" hidden>
+            <h3><i data-lucide="box"></i> 3D Interactive Wing Geometry</h3>
+            <div id="wing-3d-canvas-container" class="canvas-3d-wrapper"></div>
+            <div class="controls-3d-help">
+              <span><i data-lucide="rotate-cw"></i> Left-Click + Drag: Rotate</span>
+              <span><i data-lucide="mouse-pointer"></i> Scroll: Zoom</span>
+              <span><i data-lucide="move"></i> Right-Click + Drag: Pan</span>
+            </div>
+          </div>
           
           <div class="outputs-subgrid">
             <div class="stages-section">
