@@ -276,11 +276,20 @@ def parse_offline(text: str) -> ParseResult:
             if tip_c_match:
                 tip_chord = float(tip_c_match.group(1))
 
-        velocity = _extract_velocity_m_s(text)
-        mach = _extract_mach(text)
+        # Clean wing/airfoil geometries parameters that can conflict with flow extraction:
+        # e.g., "sweep 10 deg" or "dihedral 2 deg" or "twist 4 deg" should not be parsed as AoA.
+        # e.g., "root NACA 0012 chord 1.5m" or "tip NACA 4415 chord 0.75m" should not be parsed as the reference airfoil chord.
+        cleaned_flow_text = text
+        cleaned_flow_text = re.sub(r"\b(?:sweep|dihedral|twist)\s*[-:=]?\s*-?[0-9]*\.?[0-9]+\s*(?:deg|degree|degrees|\u00b0)?", "", cleaned_flow_text, flags=re.IGNORECASE)
+        cleaned_flow_text = re.sub(r"\b(?:root|tip)\s+naca\s*[0-9]{4,5}\s+chord\s*[0-9]*\.?[0-9]+\s*(?:m|meters)?", "", cleaned_flow_text, flags=re.IGNORECASE)
+        cleaned_flow_text = re.sub(r"\b(?:root|tip)\s+chord\s*[0-9]*\.?[0-9]+\s*(?:m|meters)?", "", cleaned_flow_text, flags=re.IGNORECASE)
+        cleaned_flow_text = re.sub(r"\b(?:root|tip)\s+naca\s*[0-9]{4,5}", "", cleaned_flow_text, flags=re.IGNORECASE)
+
+        velocity = _extract_velocity_m_s(cleaned_flow_text)
+        mach = _extract_mach(cleaned_flow_text)
         if velocity is None and mach is None:
             velocity = 50.0
-        aoa = _extract_aoa_deg(text) or 0.0
+        aoa = _extract_aoa_deg(cleaned_flow_text) or 0.0
 
         from aerosynthx.intent.schemas import WingSpec
         wing_spec = WingSpec(
