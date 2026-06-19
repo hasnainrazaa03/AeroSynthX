@@ -430,12 +430,14 @@
     const table = $("#xfoil-results");
     const chartCanvas = $("#xfoil-chart");
     const tbody = table.querySelector("tbody");
+    const polarSection = $(".polar-section");
+    if (!tbody || !polarSection) return;
     tbody.innerHTML = "";
 
     if (result.xfoil_results && result.xfoil_results.length > 0) {
+      polarSection.hidden = false;
       table.hidden = false;
       chartCanvas.hidden = false;
-      table.previousElementSibling.hidden = false; 
       for (const row of result.xfoil_results) {
         const tr = document.createElement("tr");
         tr.innerHTML = `
@@ -448,9 +450,7 @@
       }
       renderChart(result.xfoil_results);
     } else {
-      table.hidden = true;
-      chartCanvas.hidden = true;
-      table.previousElementSibling.hidden = true;
+      polarSection.hidden = true;
     }
   }
 
