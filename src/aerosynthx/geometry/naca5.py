@@ -116,7 +116,7 @@ def naca5(
     a1 = -0.1260
     a2 = -0.3516
     a3 = 0.2843
-    a4 = -0.1015 if closed_trailing_edge else -0.1036
+    a4 = -0.1036 if closed_trailing_edge else -0.1015
     yt = (t / 0.2) * (
         a0 * np.sqrt(x) + a1 * x + a2 * x**2 + a3 * x**3 + a4 * x**4
     )
@@ -132,11 +132,15 @@ def naca5(
     x_coords = np.concatenate((np.flip(xu), xl[1:]))
     y_coords = np.concatenate((np.flip(yu), yl[1:]))
 
+    if closed_trailing_edge:
+        y_coords[0] = 0.0
+        y_coords[-1] = 0.0
+
     return Airfoil(
         name=f"NACA {designation}",
         chord_m=float(chord_m),
-        x=tuple(x_coords * chord_m),
-        y=tuple(y_coords * chord_m),
+        x=tuple(x_coords),
+        y=tuple(y_coords),
         closed_trailing_edge=closed_trailing_edge,
         metadata={
             "generator": "naca5",

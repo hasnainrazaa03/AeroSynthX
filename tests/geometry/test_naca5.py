@@ -65,8 +65,9 @@ def test_naca5_golden_file_comparison():
     ref_path = TEST_DIR / "naca23012.dat"
     ref_coords = np.loadtxt(ref_path, skiprows=1)
 
-    # Generate coordinates with the same number of points as the reference file
-    n_points = ref_coords.shape[0]
+    # Generate coordinates with the correct number of points to match the reference file
+    total_points = ref_coords.shape[0]
+    n_points = (total_points + 1) // 2
     af = naca5("23012", n_points=n_points, closed_trailing_edge=False)
 
     generated_coords = np.array([af.x, af.y]).T

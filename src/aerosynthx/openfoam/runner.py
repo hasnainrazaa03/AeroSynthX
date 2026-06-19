@@ -134,9 +134,27 @@ def parse_force_coefficients(text: str) -> dict[str, float]:
 
 def parse_force_coefficients_3d(text: str) -> dict[str, float]:
     """Extract Cl/Cd/Cm from a 3D OpenFOAM ``forceCoeffs.dat`` file."""
-    # The 3D format is often different, let's assume a similar format for now
-    # but this might need adjustment based on the actual output of the 3D case.
-    return parse_force_coefficients(text)
+    last_line = None
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            last_line = line
+    if not last_line:
+        return {}
+
+    groups = re.findall(r"\(([^)]+)\)", last_line)
+    if len(groups) < 6:
+        return parse_force_coefficients(text)
+
+    try:
+        f1 = [float(x) for x in groups[0].split()]
+        m1 = [float(x) for x in groups[3].split()]
+        cl = f1[2] if len(f1) > 2 else 0.0
+        cd = f1[0] if len(f1) > 0 else 0.0
+        cm = m1[1] if len(m1) > 1 else 0.0
+        return {"cl": cl, "cd": cd, "cm": cm}
+    except (ValueError, IndexError):
+        return {}
 
 
 def _read_coefficients(case_dir: Path, is_3d: bool) -> dict[str, float]:
@@ -170,13 +188,18 @@ def _get_commands_from_allrun(case_dir: Path) -> list[str]:
     if not allrun_path.is_file():
         return []
 
+    valid_apps = {"blockMesh", "snappyHexMesh", "simpleFoam"}
     commands = []
-    content = allrun_path.read_text()
+    content = allrun_path.read_text(encoding="utf-8")
     for line in content.splitlines():
         line = line.strip()
-        if line and not line.startswith("#"):
-            # A simple parser that takes the first word of a line as the command
-            commands.append(line.split()[0])
+        if not line or line.startswith("#"):
+            continue
+        for word in line.split():
+            clean_word = word.strip('"\'')
+            if clean_word in valid_apps:
+                commands.append(clean_word)
+                break
     return commands
 
 

@@ -23,9 +23,9 @@ def test_custom_airfoil_valid():
     af = custom_airfoil(_valid_coords(), chord_m=2.0)
     assert af.name == "Custom Airfoil"
     assert af.chord_m == 2.0
-    # Coordinates should be scaled by chord
-    assert af.x == (2.0, 1.0, 0.0, 1.0, 2.0)
-    assert af.y == (0.0, 0.2, 0.0, -0.2, 0.0)
+    # Coordinates should not be scaled by chord
+    assert af.x == (1.0, 0.5, 0.0, 0.5, 1.0)
+    assert af.y == (0.0, 0.1, 0.0, -0.1, 0.0)
 
 
 def test_custom_airfoil_too_few_points():
@@ -50,11 +50,16 @@ def test_custom_airfoil_not_normalized():
 
 def test_custom_airfoil_fails_validation():
     """Test that underlying geometry validation failures are wrapped."""
-    coords = _valid_coords()
-    # Make the airfoil non-monotonic on the upper surface
-    coords[1] = (0.2, 0.1) # X goes backwards (TE=1.0, then 0.2, then LE=0.0) - wait, this is monotonic
-    # Let's make it not closed
-    coords[0] = (1.0, 0.05)
+    # Make the airfoil non-monotonic on the upper surface (x increases from 0.3 to 0.5)
+    coords = [
+        (1.0, 0.0),    # TE
+        (0.3, 0.1),    # Upper 1
+        (0.5, 0.08),   # Upper 2 (violation)
+        (0.0, 0.0),    # LE
+        (0.5, -0.1),   # Lower
+        (1.0, 0.0),    # TE
+    ]
 
     with pytest.raises(GeometryError, match="Invalid custom airfoil coordinates"):
         custom_airfoil(coords)
+

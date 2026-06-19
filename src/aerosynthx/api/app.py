@@ -28,7 +28,7 @@ from aerosynthx.intent import LLMClient
 from aerosynthx.observability import METRICS, bind_correlation_id, render_prometheus
 from aerosynthx.optimizer import OptimizationRunner, OptimizationSpec
 from aerosynthx.optimizer.report import render_optimization_report
-from aerosynthx.study import StudyRunner, StudySpec
+from aerosynthx.study import StudyRunner, StudySpec, StudyResult
 from aerosynthx.study.report import render_study_report
 from aerosynthx.workflow.db import OptimizationRow, StudyRow, open_session
 from aerosynthx.workflow.errors import StageError
@@ -179,7 +179,34 @@ def create_app(
             opt_row = session.get(OptimizationRow, opt_id)
             if not opt_row:
                 raise HTTPException(status_code=404, detail="Optimization not found")
+            if not opt_row.result_json:
+                return {"optimization_id": opt_id, "status": opt_row.status}
+            import json
+            if isinstance(opt_row.result_json, str):
+                return json.loads(opt_row.result_json)
             return opt_row.result_json
+
+    @app.get(
+        "/api/v1/optimizations/{opt_id}/report",
+        tags=["optimizations"],
+        dependencies=[auth_read],
+        response_class=HTMLResponse,
+    )
+    def get_optimization_report(opt_id: str) -> HTMLResponse:
+        with open_session(pipeline.db_path) as session:
+            opt_row = session.get(OptimizationRow, opt_id)
+            if not opt_row:
+                raise HTTPException(status_code=404, detail="Optimization not found")
+            if not opt_row.result_json:
+                raise HTTPException(status_code=400, detail="Optimization has no results yet")
+            import json
+            from aerosynthx.optimizer.schemas import OptimizationResult
+            if isinstance(opt_row.result_json, str):
+                data = json.loads(opt_row.result_json)
+            else:
+                data = opt_row.result_json
+            result = OptimizationResult.model_validate(data)
+            return HTMLResponse(content=render_optimization_report(result))
 
     # -------- studies --------------------------------------------------
 

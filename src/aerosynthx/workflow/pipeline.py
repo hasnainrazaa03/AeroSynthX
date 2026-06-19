@@ -180,6 +180,7 @@ class RunResult:
             "stages": [asdict(s) for s in self.stages],
             "solve": _solve_dict(self.solve_result) if self.solve_result else None,
             "xfoil": [asdict(r) for r in self.xfoil_results] if self.xfoil_results else None,
+            "xfoil_results": [asdict(r) for r in self.xfoil_results] if self.xfoil_results else None,
             "wing": asdict(self.wing) if self.wing else None,
         }
 
@@ -463,38 +464,61 @@ class Pipeline:
         """
         from aerosynthx.workflow.tasks import execute_run_task
 
+        if not intent_text or not intent_text.strip():
+            raise StageError("Intent text cannot be empty or whitespace-only.", stage="parse")
+
         run_id = _run_id_for(intent_text, analysis_mode)
 
-        if resume and not (execute and analysis_mode == "openfoam"):
-            cached = self._maybe_resume(run_id)
-            if cached is not None:
-                _LOG.info("resume.hit run_id=%s", run_id)
-                return cached
+        with self._locks.acquire(run_id):
+            if resume and not (execute and analysis_mode == "openfoam"):
+                cached = self._maybe_resume(run_id)
+                if cached is not None:
+                    _LOG.info("resume.hit run_id=%s", run_id)
+                    return cached
 
-        # Create initial DB entry
-        self._persist(
-            run_id=run_id,
-            intent_text=intent_text,
-            status="queued",
-            intent=None, flow=None, case_dir=None, manifest_digest=None,
-            stages_so_far=[],
-        )
+            # Create initial DB entry
+            self._persist(
+                run_id=run_id,
+                intent_text=intent_text,
+                status="queued",
+                intent=None, flow=None, case_dir=None, manifest_digest=None,
+                stages_so_far=[],
+            )
 
-        # Submit to Celery
-        execute_run_task.delay(
-            intent_text=intent_text,
-            out_root_str=str(self._out_root),
-            analysis_mode=analysis_mode,
-            run_id=run_id,
-        )
+            from aerosynthx.task_queue import celery_app
+            if celery_app.conf.task_always_eager:
+                control = RunControl.create(timeout=timeout, cancel_token=cancel_token, clock=self._clock)
+                emit = _make_emitter(run_id, on_event)
+                status = "failed"
+                try:
+                    res = self.execute_run_sync(
+                        run_id=run_id,
+                        intent_text=intent_text,
+                        execute=execute,
+                        control=control,
+                        emit=emit,
+                        analysis_mode=analysis_mode,
+                    )
+                    status = res.status
+                    return res
+                finally:
+                    emit("run_finished", None, status, None)
 
-        # Return a placeholder result
-        return RunResult(
-            run_id=run_id,
-            intent_text=intent_text,
-            status="queued",
-            intent=None, flow_state=None, case_dir=None, manifest_digest=None, stages=(),
-        )
+            # Submit to Celery
+            execute_run_task.delay(
+                intent_text=intent_text,
+                out_root_str=str(self._out_root),
+                analysis_mode=analysis_mode,
+                run_id=run_id,
+            )
+
+            # Return a placeholder result
+            return RunResult(
+                run_id=run_id,
+                intent_text=intent_text,
+                status="queued",
+                intent=None, flow_state=None, case_dir=None, manifest_digest=None, stages=(),
+            )
 
     def execute_run_sync(
         self,

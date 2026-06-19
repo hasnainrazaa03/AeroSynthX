@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+import threading
 
 from sqlalchemy import Float, ForeignKey, String, create_engine
 from sqlalchemy.engine import Engine
@@ -112,6 +113,9 @@ class XfoilResultRow(Base):
     run: Mapped[RunRow] = relationship(back_populates="xfoil_result")
 
 
+_DB_INIT_LOCK = threading.Lock()
+
+
 def _engine_for(path: Path) -> Engine:
     path.parent.mkdir(parents=True, exist_ok=True)
     return create_engine(f"sqlite:///{path}", future=True)
@@ -120,7 +124,8 @@ def _engine_for(path: Path) -> Engine:
 def init_db(path: Path) -> None:
     """Create the database file and tables if they do not yet exist."""
     engine = _engine_for(path)
-    Base.metadata.create_all(engine)
+    with _DB_INIT_LOCK:
+        Base.metadata.create_all(engine)
     engine.dispose()
 
 
@@ -132,7 +137,8 @@ def open_session(path: Path) -> Iterator[Session]:
     normal exit and rolled back on exception.
     """
     engine = _engine_for(path)
-    Base.metadata.create_all(engine)
+    with _DB_INIT_LOCK:
+        Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
     session = factory()
     try:

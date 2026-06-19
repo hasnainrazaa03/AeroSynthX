@@ -44,7 +44,7 @@ _CHORD_RE = re.compile(
     ([0-9]*\.?[0-9]+)
     \s*
     (millimeters|millimeter|centimeters|centimeter|meters|metres|meter|metre
-     |inches|inch|feet|mm|cm|ft|in|m)?
+     |inches|inch|feet|mm|cm|ft|in|m)
     \b
     """,
 )
@@ -78,8 +78,7 @@ _AOA_RE = re.compile(
         (?:angle[\s_-]*of[\s_-]*attack|aoa|alpha|\u03b1)
         [\s:=]*
         (-?[0-9]*\.?[0-9]+)
-        \s*
-        (?:deg|degree|degrees|\u00b0)?
+        (?:\s*(?:deg|degree|degrees|\u00b0))?
     |
         (-?[0-9]*\.?[0-9]+)
         \s*

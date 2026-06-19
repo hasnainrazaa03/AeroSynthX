@@ -48,9 +48,19 @@ class AirfoilSpec(BaseModel):
             if self.family == "naca4":
                 if len(self.designation) != 4:
                     raise ValueError("NACA 4-digit designation must be 4 characters long.")
+                m = int(self.designation[0])
+                p = int(self.designation[1])
+                t = int(self.designation[2:4])
+                if m > 0 and p == 0:
+                    raise ValueError("non-zero camber requires a non-zero camber position (NACA M>0 with P=0 is invalid)")
+                if t == 0:
+                    raise ValueError("zero thickness is not a valid airfoil")
             elif self.family == "naca5":
                 if len(self.designation) != 5:
                     raise ValueError("NACA 5-digit designation must be 5 characters long.")
+                t = int(self.designation[3:])
+                if t == 0:
+                    raise ValueError("zero thickness is not a valid airfoil")
         return self
 
 
@@ -68,7 +78,7 @@ class WingSpec(BaseModel):
 class FlowCondition(BaseModel):
     """Freestream flow conditions."""
     model_config = ConfigDict(extra="forbid", frozen=True)
-    altitude_m: float | None = Field(default=None)
+    altitude_m: float | None = Field(default=None, ge=MIN_ALTITUDE_M, le=MAX_ALTITUDE_M)
     velocity_m_s: PositiveFloat | None = None
     mach: float | None = Field(default=None, ge=0.0, lt=MAX_MACH_INCOMPRESSIBLE)
     angle_of_attack_deg: float | None = Field(default=None, ge=-MAX_ABS_ALPHA_DEG, le=MAX_ABS_ALPHA_DEG)

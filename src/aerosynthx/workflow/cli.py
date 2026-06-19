@@ -9,9 +9,6 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from aerosynthx.optimizer import OptimizationRunner, OptimizationSpec
-from aerosynthx.study import StudyRunner, StudySpec
-from aerosynthx.study.report import render_study_report
 from aerosynthx.workflow.db import open_session, StudyRow
 from aerosynthx.workflow.errors import RunNotFoundError, StageError
 from aerosynthx.workflow.pipeline import Pipeline, RunResult, load_run, query_runs
@@ -86,6 +83,9 @@ def _build_parser() -> argparse.ArgumentParser:
     opt_p = sub.add_parser("optimize", help="Run an optimization study.")
     opt_p.add_argument("spec_file", type=Path, help="Path to the optimization specification JSON file.")
     opt_p.add_argument("--out", required=True, type=Path, help="Output directory for the optimization.")
+
+    worker_p = sub.add_parser("worker", help="Start a Celery worker.")
+    worker_p.add_argument("--out", required=True, type=Path, help="Output directory for the worker.")
 
     show_p = sub.add_parser("show", help="Print a persisted run as JSON to stdout.")
     show_p.add_argument("run_id", help="Run id returned by `run`.")
@@ -203,6 +203,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 
 def _cmd_study(args: argparse.Namespace) -> int:
+    from aerosynthx.study import StudyRunner, StudySpec
+
     pipeline = Pipeline(out_root=args.out)
     runner = StudyRunner(pipeline)
     spec = StudySpec.model_validate_json(args.spec_file.read_text())
@@ -212,12 +214,25 @@ def _cmd_study(args: argparse.Namespace) -> int:
 
 
 def _cmd_optimize(args: argparse.Namespace) -> int:
+    from aerosynthx.optimizer import OptimizationRunner, OptimizationSpec
+
     pipeline = Pipeline(out_root=args.out)
     study_runner = StudyRunner(pipeline)
     opt_runner = OptimizationRunner(study_runner)
     spec = OptimizationSpec.model_validate_json(args.spec_file.read_text())
     result = opt_runner.run(spec)
     _print_result(result)
+    return 0
+
+
+def _cmd_worker(args: argparse.Namespace) -> int:
+    from aerosynthx.task_queue import celery_app
+    worker = celery_app.Worker(
+        app=celery_app,
+        hostname="aerosynthx-worker@%h",
+        loglevel="INFO",
+    )
+    worker.start()
     return 0
 
 
@@ -300,6 +315,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_study(args)
     if args.command == "optimize":
         return _cmd_optimize(args)
+    if args.command == "worker":
+        return _cmd_worker(args)
     if args.command == "show":
         return _cmd_show(args)
     if args.command == "delete":

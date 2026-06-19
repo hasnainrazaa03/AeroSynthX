@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy import select
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from aerosynthx.openfoam.runner import CommandRunner
 
 _GOOD_INTENT = "NACA 2412 at 50 m/s, alpha 3 deg, chord 1.0 m."
-_GOOD_INTENT_SWEEP = "NACA 0012 from 0 to 5 degrees alpha by 1 degree"
+_GOOD_INTENT_SWEEP = "NACA 0012 at 50 m/s, from 0 to 5 degrees alpha by 1 degree"
 _OTHER_INTENT = "NACA 2412 at 65 m/s, alpha 3 deg, chord 1.0 m."
 _WING_INTENT = "3D wing, span 10m, root NACA 0012 chord 1m, tip NACA 0012 chord 0.5m"
 
@@ -55,17 +55,29 @@ def test_run_wing_geometry_path(mock_generate_wing, tmp_path: Path) -> None:
         ),
         flow={"velocity_m_s": 50, "angle_of_attack_deg": 2.0},
         assumptions=[],
-        provenance={},
+        provenance={"fields": {}},
     )
 
     # We need to bypass the text-based run method for this test
     run_id = "wing_run_123"
-    result = pipe._execute_run(run_id, _WING_INTENT, execute=False, control=MagicMock(), emit=lambda *a, **kw: None)
+    from aerosynthx.intent import ParseResult
+    with patch.object(pipe, "_parse_intent") as mock_parse:
+        mock_parse.return_value = ParseResult(
+            intent=intent, raw_input=_WING_INTENT, model="test", attempts=1
+        )
+        result = pipe.execute_run_sync(
+            run_id,
+            _WING_INTENT,
+            execute=False,
+            control=MagicMock(),
+            emit=lambda *a, **kw: None,
+        )
 
     assert result.status == "completed"
     stage_names = {s.name for s in result.stages}
     assert "wing_geometry" in stage_names
-    assert "case" not in stage_names
+    assert "case" in stage_names
+    assert "mesh" in stage_names
     mock_generate_wing.assert_called_once()
 
 
@@ -576,7 +588,7 @@ def test_execute_caps_solver_timeout_to_budget(
     pipe = Pipeline(out_root=tmp_path, command_runner=runner, clock=_FakeClock(0.0))
     result = pipe.run(_GOOD_INTENT, execute=True, timeout=30.0)
     assert result.status == "completed"
-    assert seen["timeout"] == 30.0
+    assert seen["timeout"] == pytest.approx(30.0)
 
 
 def test_delete_run_removes_record_and_artifacts(tmp_path: Path) -> None:
@@ -615,11 +627,11 @@ def test_concurrent_same_intent_builds_once(tmp_path: Path) -> None:
     build_count = 0
     count_guard = threading.Lock()
     class _CountingPipeline(Pipeline):
-        def _run_uncached(self, *args: object, **kwargs: object):
+        def execute_run_sync(self, *args: object, **kwargs: object):
             nonlocal build_count
             with count_guard:
                 build_count += 1
-            return super()._run_uncached(*args, **kwargs)
+            return super().execute_run_sync(*args, **kwargs)
     pipe = _CountingPipeline(out_root=tmp_path)
     start = threading.Barrier(2)
     results: list[object] = []

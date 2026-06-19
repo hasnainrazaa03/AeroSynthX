@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from aerosynthx.optimizer.engine import GridSearchEngine
 from aerosynthx.optimizer.schemas import OptimizationSpec, OptimizationResult
 from aerosynthx.study.runner import StudyRunner
-from aerosynthx.workflow.db import OptimizationRow, open_session
+from aerosynthx.workflow.db import OptimizationRow, StudyRow, open_session
 
 
 class OptimizationRunner:
@@ -18,52 +18,86 @@ class OptimizationRunner:
 
     def run(self, spec: OptimizationSpec) -> OptimizationResult:
         """
-        Runs an optimization study.
-
-        Args:
-            spec: The specification of the optimization.
-
-        Returns:
-            An OptimizationResult with the best found candidate.
+        Submits an asynchronous optimization job to Celery.
         """
+        from aerosynthx.optimizer.tasks import execute_optimization_task
+
         opt_id = uuid.uuid4().hex[:16]
 
         with open_session(self._study_runner._pipeline.db_path) as session:
             opt_row = OptimizationRow(
                 id=opt_id,
                 spec_json=spec.model_dump_json(),
-                status="running",
+                status="queued",
                 created_at_iso=datetime.now(tz=UTC).isoformat(timespec="seconds"),
             )
             session.add(opt_row)
             session.commit()
 
-        study_spec = self._engine.create_study_spec(spec)
-        study_result = self._study_runner.run(study_spec)
+        from aerosynthx.task_queue import celery_app
+        if celery_app.conf.task_always_eager:
+            return self.run_sync(spec, opt_id=opt_id)
 
-        best_run = self._find_best_run(study_result, spec)
-
-        result = OptimizationResult(
-            optimization_id=opt_id,
-            study_id=study_result.study_id,
-            best_run_id=best_run.run_id,
-            best_run_result=best_run.to_json(),
+        execute_optimization_task.delay(
+            spec_dict=spec.model_dump(),
+            out_root_str=str(self._study_runner._pipeline._out_root),
+            opt_id=opt_id,
         )
 
+        return OptimizationResult(
+            optimization_id=opt_id,
+            study_id="",
+            best_run_id="",
+            best_run_result={},
+        )
+
+    def run_sync(self, spec: OptimizationSpec, opt_id: str) -> OptimizationResult:
+        """
+        Synchronously runs an optimization study.
+        This is intended to be called by a Celery task.
+        """
         with open_session(self._study_runner._pipeline.db_path) as session:
             opt_row = session.get(OptimizationRow, opt_id)
-            opt_row.status = "completed"
-            opt_row.result_json = result.model_dump_json()
-            opt_row.completed_at_iso = datetime.now(tz=UTC).isoformat(timespec="seconds")
+            if opt_row:
+                opt_row.status = "running"
+                session.commit()
 
-            # Link the study to the optimization
-            study_row = session.get(self._study_runner.StudyRow, study_result.study_id)
-            if study_row:
-                study_row.optimization_id = opt_id
+        try:
+            study_spec = self._engine.create_study_spec(spec)
+            study_result = self._study_runner.run_sync(study_spec)
 
-            session.commit()
+            best_run = self._find_best_run(study_result, spec)
 
-        return result
+            result = OptimizationResult(
+                optimization_id=opt_id,
+                study_id=study_result.study_id,
+                best_run_id=best_run.run_id,
+                best_run_result=best_run.to_json(),
+            )
+
+            with open_session(self._study_runner._pipeline.db_path) as session:
+                opt_row = session.get(OptimizationRow, opt_id)
+                if opt_row:
+                    opt_row.status = "completed"
+                    opt_row.result_json = result.model_dump_json()
+                    opt_row.completed_at_iso = datetime.now(tz=UTC).isoformat(timespec="seconds")
+
+                # Link the study to the optimization
+                study_row = session.get(StudyRow, study_result.study_id)
+                if study_row:
+                    study_row.optimization_id = opt_id
+
+                session.commit()
+
+            return result
+        except Exception:
+            with open_session(self._study_runner._pipeline.db_path) as session:
+                opt_row = session.get(OptimizationRow, opt_id)
+                if opt_row:
+                    opt_row.status = "failed"
+                    opt_row.completed_at_iso = datetime.now(tz=UTC).isoformat(timespec="seconds")
+                    session.commit()
+            raise
 
     def _find_best_run(self, study_result, spec: OptimizationSpec):
         """Finds the best run in a study based on the objective."""

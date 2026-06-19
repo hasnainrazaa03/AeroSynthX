@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from aerosynthx import __version__
 from aerosynthx.api import create_app
+from aerosynthx.study.schemas import StudyResult
 from aerosynthx.xfoil import XfoilResult
 
 _GOOD = "NACA 2412 at 50 m/s, alpha 3 deg, chord 1.0 m."
@@ -73,8 +74,25 @@ def test_create_study(client: TestClient) -> None:
     assert len(body["runs"]) == 2
 
 
-def test_create_optimization(client: TestClient) -> None:
+@patch("aerosynthx.workflow.pipeline.run_xfoil")
+@patch("aerosynthx.workflow.pipeline.Pipeline._parse_intent")
+def test_create_optimization(mock_parse_intent, mock_run_xfoil, client: TestClient) -> None:
     """Test creating an optimization via the API."""
+    from aerosynthx.intent import ParseResult, DesignIntent, AirfoilSpec, FlowCondition, ProvenanceMap
+    
+    def parse_side_effect(intent_text: str):
+        designation = "0012"
+        if "2412" in intent_text:
+            designation = "2412"
+        intent = DesignIntent(
+            airfoil=AirfoilSpec(family="naca4", designation=designation, chord_m=1.0),
+            flow=FlowCondition(velocity_m_s=50.0, angle_of_attack_deg=4.0),
+            provenance=ProvenanceMap(fields={})
+        )
+        return ParseResult(intent=intent, raw_input=intent_text, model="test", attempts=1)
+
+    mock_parse_intent.side_effect = parse_side_effect
+    mock_run_xfoil.return_value = [XfoilResult(alpha_deg=4.0, cl=0.5, cd=0.01, cm=-0.02)]
     spec = {
         "objective": "maximize_cl_cd",
         "design_space": {
@@ -89,6 +107,127 @@ def test_create_optimization(client: TestClient) -> None:
     assert r.status_code == 201
     body = r.json()
     assert body["best_run_id"] is not None
+
+
+def test_get_study(client: TestClient) -> None:
+    spec = {
+        "study_name": "API Study Test",
+        "base_intent": {
+            "airfoil": {"family": "naca4", "designation": "0012", "chord_m": 1.0},
+            "flow": {"velocity_m_s": 50, "angle_of_attack_deg": 2.0},
+        },
+        "variables": {"flow.reynolds_target": [1e6]},
+    }
+    created = client.post("/api/v1/studies", json=spec).json()
+    r = client.get(f"/api/v1/studies/{created['study_id']}")
+    assert r.status_code == 200
+    assert r.json()["study_id"] == created["study_id"]
+
+
+def test_get_study_404(client: TestClient) -> None:
+    r = client.get("/api/v1/studies/nonexistentstudy")
+    assert r.status_code == 404
+
+
+def test_get_study_report(client: TestClient) -> None:
+    spec = {
+        "study_name": "API Study Report Test",
+        "base_intent": {
+            "airfoil": {"family": "naca4", "designation": "0012", "chord_m": 1.0},
+            "flow": {"velocity_m_s": 50, "angle_of_attack_deg": 2.0},
+        },
+        "variables": {"flow.reynolds_target": [1e6]},
+    }
+    created = client.post("/api/v1/studies", json=spec).json()
+    r = client.get(f"/api/v1/studies/{created['study_id']}/report")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    body = r.text
+    assert "Study Report:" in body
+    assert created["study_id"] in body
+
+
+def test_get_study_report_404(client: TestClient) -> None:
+    r = client.get("/api/v1/studies/nonexistentstudy/report")
+    assert r.status_code == 404
+
+
+@patch("aerosynthx.workflow.pipeline.run_xfoil")
+@patch("aerosynthx.workflow.pipeline.Pipeline._parse_intent")
+def test_get_optimization(mock_parse_intent, mock_run_xfoil, client: TestClient) -> None:
+    from aerosynthx.intent import ParseResult, DesignIntent, AirfoilSpec, FlowCondition, ProvenanceMap
+    
+    mock_parse_intent.return_value = ParseResult(
+        intent=DesignIntent(
+            airfoil=AirfoilSpec(family="naca4", designation="0012", chord_m=1.0),
+            flow=FlowCondition(velocity_m_s=50.0, angle_of_attack_deg=4.0),
+            provenance=ProvenanceMap(fields={})
+        ),
+        raw_input="",
+        model="test",
+        attempts=1
+    )
+    mock_run_xfoil.return_value = [XfoilResult(alpha_deg=4.0, cl=0.5, cd=0.01, cm=-0.02)]
+    spec = {
+        "objective": "maximize_cl_cd",
+        "design_space": {
+            "airfoil.designation": ["0012"]
+        },
+        "base_intent": {
+            "airfoil": {"family": "naca4", "chord_m": 1.0},
+            "flow": {"velocity_m_s": 50, "angle_of_attack_deg": 4.0},
+        },
+    }
+    created = client.post("/api/v1/optimizations", json=spec).json()
+    r = client.get(f"/api/v1/optimizations/{created['optimization_id']}")
+    assert r.status_code == 200
+    assert r.json()["optimization_id"] == created["optimization_id"]
+
+
+def test_get_optimization_404(client: TestClient) -> None:
+    r = client.get("/api/v1/optimizations/nonexistentopt")
+    assert r.status_code == 404
+
+
+@patch("aerosynthx.workflow.pipeline.run_xfoil")
+@patch("aerosynthx.workflow.pipeline.Pipeline._parse_intent")
+def test_get_optimization_report(mock_parse_intent, mock_run_xfoil, client: TestClient) -> None:
+    from aerosynthx.intent import ParseResult, DesignIntent, AirfoilSpec, FlowCondition, ProvenanceMap
+    
+    mock_parse_intent.return_value = ParseResult(
+        intent=DesignIntent(
+            airfoil=AirfoilSpec(family="naca4", designation="0012", chord_m=1.0),
+            flow=FlowCondition(velocity_m_s=50.0, angle_of_attack_deg=4.0),
+            provenance=ProvenanceMap(fields={})
+        ),
+        raw_input="",
+        model="test",
+        attempts=1
+    )
+    mock_run_xfoil.return_value = [XfoilResult(alpha_deg=4.0, cl=0.5, cd=0.01, cm=-0.02)]
+    spec = {
+        "objective": "maximize_cl_cd",
+        "design_space": {
+            "airfoil.designation": ["0012"]
+        },
+        "base_intent": {
+            "airfoil": {"family": "naca4", "chord_m": 1.0},
+            "flow": {"velocity_m_s": 50, "angle_of_attack_deg": 4.0},
+        },
+    }
+    created = client.post("/api/v1/optimizations", json=spec).json()
+    r = client.get(f"/api/v1/optimizations/{created['optimization_id']}/report")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    body = r.text
+    assert "Optimization Report" in body
+    assert created["optimization_id"] in body
+
+
+def test_get_optimization_report_404(client: TestClient) -> None:
+    r = client.get("/api/v1/optimizations/nonexistentopt/report")
+    assert r.status_code == 404
+
 
 
 def test_create_run_failed_status_is_201_with_failed_body(client: TestClient) -> None:

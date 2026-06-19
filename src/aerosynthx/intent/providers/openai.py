@@ -16,8 +16,9 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
 from typing import Any, Protocol
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from aerosynthx.intent.errors import IntentError
 from aerosynthx.observability import METRICS
@@ -129,43 +130,33 @@ def _parse_retry_after(raw: str | None) -> float | None:
         return None
 
 
-@dataclass(frozen=True)
-class RetryPolicy:
-    """Exponential-backoff settings for transient provider failures.
-
-    ``sleep`` and ``rng`` are injectable so backoff is deterministic in
-    tests; in production they default to :func:`time.sleep` and
-    :func:`random.random`.
-    """
+class RetryPolicy(BaseModel):
+    """Exponential-backoff settings for transient provider failures."""
+    model_config = ConfigDict(frozen=True)
 
     max_attempts: int = _DEFAULT_RETRIES
     base_delay: float = _DEFAULT_RETRY_BASE_SECONDS
     max_delay: float = _DEFAULT_RETRY_MAX_SECONDS
     multiplier: float = 2.0
     jitter: float = 0.1
-    sleep: Callable[[float], None] = time.sleep
-    rng: Callable[[], float] = random.random
+    sleep: Callable[[float], None] = Field(default=time.sleep, exclude=True)
+    rng: Callable[[], float] = Field(default=random.random, exclude=True)
 
     def delay_for(self, retry_index: int) -> float:
-        """Return the backoff delay (seconds) before retry ``retry_index``.
-
-        ``retry_index`` is zero-based: ``0`` is the wait before the first
-        retry. The delay grows geometrically, is capped at ``max_delay``,
-        and has additive jitter of up to ``jitter`` of the capped value.
-        """
+        """Return the backoff delay (seconds) before retry ``retry_index``."""
         capped = min(self.base_delay * (self.multiplier**retry_index), self.max_delay)
         return capped + self.jitter * capped * self.rng()
 
 
-@dataclass(frozen=True)
-class ProviderConfig:
+class ProviderConfig(BaseModel):
     """Connection settings for an OpenAI-compatible endpoint."""
+    model_config = ConfigDict(frozen=True)
 
     model: str = _DEFAULT_MODEL
     base_url: str = _DEFAULT_BASE_URL
     api_key: str | None = None
     timeout: float = _DEFAULT_TIMEOUT
-    extra_headers: Mapping[str, str] = field(default_factory=dict)
+    extra_headers: Mapping[str, str] = Field(default_factory=dict)
 
     @property
     def chat_completions_url(self) -> str:

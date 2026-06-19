@@ -36,6 +36,7 @@ from aerosynthx.intent.schemas import (
     FlowCondition,
     ParseResult,
     ProvenanceMap,
+    WingSpec,
     design_intent_json_schema,
 )
 
@@ -57,6 +58,7 @@ __all__ = [
     "ProviderError",
     "SchemaValidationError",
     "StaticLLMClient",
+    "WingSpec",
     "build_client_from_env",
     "design_intent_json_schema",
     "parse_offline",

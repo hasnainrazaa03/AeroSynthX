@@ -39,10 +39,50 @@
       let id = result.run_id || result.study_id || result.optimization_id;
 
       while (result[statusField] === "queued" || result[statusField] === "running" || result[statusField] === "pending") {
-          await new Promise(resolve => setTimeout(result, 2000)); // Poll every 2 seconds
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Poll every 2 seconds
           result = await apiCall(`${endpoint}/${id}`);
       }
       return result;
+  }
+
+  async function loadVersion() {
+    try {
+      const info = await apiCall("/api/v1/version");
+      $("#version").textContent = info.version;
+    } catch {
+      $("#version").textContent = "unknown";
+    }
+  }
+
+  function sortTable(tableId, field, isNumeric) {
+    const table = $(`#${tableId}`);
+    const tbody = table.querySelector("tbody");
+    const rows = Array.from(tbody.querySelectorAll("tr"));
+    const th = table.querySelector(`th[data-sort="${field}"]`);
+    const isAsc = !th.classList.contains("sort-asc");
+    
+    table.querySelectorAll("th").forEach(header => {
+        header.classList.remove("sort-asc", "sort-desc");
+    });
+    th.classList.add(isAsc ? "sort-asc" : "sort-desc");
+
+    rows.sort((a, b) => {
+        const headers = Array.from(table.querySelectorAll("th"));
+        const colIndex = headers.indexOf(th);
+        const cellA = a.children[colIndex].textContent.trim();
+        const cellB = b.children[colIndex].textContent.trim();
+
+        if (isNumeric) {
+            const valA = parseFloat(cellA) || 0;
+            const valB = parseFloat(cellB) || 0;
+            return isAsc ? valA - valB : valB - valA;
+        } else {
+            return isAsc ? cellA.localeCompare(cellB) : cellB.localeCompare(cellA);
+        }
+    });
+
+    tbody.innerHTML = "";
+    rows.forEach(r => tbody.appendChild(r));
   }
 
   // --- UI Rendering ---

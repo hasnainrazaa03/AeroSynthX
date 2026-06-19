@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from aerosynthx.intent.schemas import DesignIntent, AirfoilSpec, WingSpec
+from aerosynthx.intent.schemas import DesignIntent, AirfoilSpec, WingSpec, ProvenanceMap, FlowCondition
 from aerosynthx.openfoam.runner import (
     CommandResult,
     SolverExecutionError,
@@ -13,6 +13,7 @@ from aerosynthx.openfoam.runner import (
     parse_force_coefficients,
     parse_force_coefficients_3d,
     run_case,
+    parse_residuals,
 )
 
 _SOLVER_LOG = """\
@@ -52,10 +53,12 @@ def test_parse_force_coefficients_2d() -> None:
 
 
 def test_parse_force_coefficients_3d() -> None:
-    # This is a placeholder test, as the 3D parsing logic is not fully defined yet.
-    # We will assume for now it has the same keys.
-    # A proper implementation would parse the vector forces and calculate coefficients.
-    pass
+    coeffs = parse_force_coefficients_3d(_COEFF_DAT_3D)
+    assert coeffs == {
+        "cd": pytest.approx(0.1),
+        "cl": pytest.approx(0.3),
+        "cm": pytest.approx(1.1),
+    }
 
 
 def test_openfoam_available_checks_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -82,7 +85,11 @@ def _fake_runner_factory(
 
 def test_run_case_2d_success(tmp_path: Path) -> None:
     (tmp_path / "Allrun").write_text("blockMesh\nsimpleFoam")
-    intent = DesignIntent(airfoil=AirfoilSpec(family="naca4", designation="0012", chord_m=1.0), flow={})
+    intent = DesignIntent(
+        airfoil=AirfoilSpec(family="naca4", designation="0012", chord_m=1.0),
+        flow=FlowCondition(velocity_m_s=50.0, angle_of_attack_deg=0.0),
+        provenance=ProvenanceMap(fields={}),
+    )
     result = run_case(tmp_path, intent=intent, runner=_fake_runner_factory(tmp_path))
     assert result.ran is True
     assert result.converged is True
@@ -92,7 +99,11 @@ def test_run_case_2d_success(tmp_path: Path) -> None:
 
 def test_run_case_3d_success(tmp_path: Path) -> None:
     (tmp_path / "Allrun").write_text("blockMesh\nsnappyHexMesh\nsimpleFoam")
-    intent = DesignIntent(wing=WingSpec(span=1, root_airfoil=AirfoilSpec(family="naca4", designation="0012", chord_m=1.0)), flow={})
+    intent = DesignIntent(
+        wing=WingSpec(span=1.0, root_airfoil=AirfoilSpec(family="naca4", designation="0012", chord_m=1.0)),
+        flow=FlowCondition(velocity_m_s=50.0, angle_of_attack_deg=0.0),
+        provenance=ProvenanceMap(fields={}),
+    )
 
     def runner_3d(command: Sequence[str], *, cwd: Path, timeout: float) -> CommandResult:
         app = command[0]
@@ -112,7 +123,11 @@ def test_run_case_3d_success(tmp_path: Path) -> None:
 
 def test_run_case_raises_on_solver_failure(tmp_path: Path) -> None:
     (tmp_path / "Allrun").write_text("blockMesh\nsimpleFoam")
-    intent = DesignIntent(airfoil=AirfoilSpec(family="naca4", designation="0012", chord_m=1.0), flow={})
+    intent = DesignIntent(
+        airfoil=AirfoilSpec(family="naca4", designation="0012", chord_m=1.0),
+        flow=FlowCondition(velocity_m_s=50.0, angle_of_attack_deg=0.0),
+        provenance=ProvenanceMap(fields={}),
+    )
     with pytest.raises(SolverExecutionError):
         run_case(tmp_path, intent=intent, runner=_fake_runner_factory(tmp_path, fail_on="simpleFoam"))
     assert (tmp_path / "log.simpleFoam").read_text(encoding="utf-8") == "boom\nbad"

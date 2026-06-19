@@ -50,8 +50,8 @@ def custom_airfoil(
     airfoil = Airfoil(
         name=name,
         chord_m=float(chord_m),
-        x=tuple(x * chord_m),
-        y=tuple(y * chord_m),
+        x=tuple(x),
+        y=tuple(y),
         closed_trailing_edge=np.isclose(y[0], y[-1]),
         metadata={"generator": "custom"},
     )
